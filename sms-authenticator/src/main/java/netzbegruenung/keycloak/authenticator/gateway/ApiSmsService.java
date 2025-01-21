@@ -68,7 +68,7 @@ public class ApiSmsService implements SmsService{
 			String jsonBody = createJsonBody(phoneNumber, message);
 			logger.infof("Equivalent curl command: curl -X POST '%s' -H 'Content-Type: application/json' %s -d '%s'",
 				apiurl,
-				apiuser != null && !apiuser.isEmpty() ? "-H 'Authorization: " + apiuser + "'" : "",
+				apiuser != null && !apiuser.isEmpty() ? "-H 'Authorization: Basic " + apiuser + "'" : "",
 				jsonBody);
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
