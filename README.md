@@ -43,3 +43,18 @@ https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-f
 1. Trigger the release by `git push --tags`
 
 After building completes the new release is available on github containing the jar files for each module.
+
+## Link Mobility in Norway
+
+Code is updated for using the norwegian Link Mobile API for sending sms.
+
+Checkout branch lmob for this functionality
+
+Usage: Compile jar from netzbegruenung.sms-authenticator-v26.0.6.jar - from mother repo
+
+Build with: mvn clean package
+
+Copy jar to: /opt/keycloak/bin/providers
+
+Add provider to authentication flow and set default values. Api token should be encoded while entering it in gui.
+
