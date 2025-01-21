@@ -78,7 +78,6 @@ public class SmsAuthenticatorFactory implements AuthenticatorFactory {
 			new ProviderConfigProperty("simulation", "Simulation mode", "In simulation mode, the SMS won't be sent, but printed to the server logs", ProviderConfigProperty.BOOLEAN_TYPE, true),
 			new ProviderConfigProperty("countrycode", "Default country prefix", "Default country prefix that is assumed if user does not provide one.", ProviderConfigProperty.STRING_TYPE, "+49"),
 			new ProviderConfigProperty("apiurl", "SMS API URL", "The path to the API that receives an HTTP request.", ProviderConfigProperty.STRING_TYPE, "https://example.com/api/sms/send"),
-			new ProviderConfigProperty("apitoken", "API Secret (optional)", "Your API secret. If a Basic Auth user is set, this will be the Basic Auth password.", ProviderConfigProperty.STRING_TYPE, "changeme"),
 			new ProviderConfigProperty("apiuser", "Basic Auth Username (optional)", "If set, Basic Auth will be performed. Leave empty if not required.", ProviderConfigProperty.STRING_TYPE, ""),
 			new ProviderConfigProperty("forceSecondFactor", "Force 2FA", "If 2FA authentication is not configured, the user is forced to setup SMS Authentication.", ProviderConfigProperty.BOOLEAN_TYPE, false),
 			new ProviderConfigProperty("whitelist", "Excluded from enforced 2FA", "All users with the here selected role are not forced to setup 2FA.", ProviderConfigProperty.ROLE_TYPE, null),

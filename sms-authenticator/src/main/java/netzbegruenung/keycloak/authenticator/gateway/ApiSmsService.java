@@ -27,9 +27,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import org.jboss.logging.Logger;
-import java.util.Base64;
-import java.nio.charset.Charset;
-import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class ApiSmsService implements SmsService{
@@ -38,7 +35,6 @@ public class ApiSmsService implements SmsService{
 	private static final Pattern plusPrefixPattern = Pattern.compile("\\+");
 
 	private final String apiurl;
-	private final String apitoken;
 	private final String apiuser;
 	private final String source;
 	private final String countrycode;
@@ -46,7 +42,6 @@ public class ApiSmsService implements SmsService{
 	
 	ApiSmsService(Map<String, String> config) {
 		apiurl = config.get("apiurl");
-		apitoken = config.getOrDefault("apitoken", "");
 		apiuser = config.getOrDefault("apiuser", "");
 		source = config.getOrDefault("source", "LINK TEST");
 		countrycode = config.getOrDefault("countrycode", "");
@@ -64,10 +59,18 @@ public class ApiSmsService implements SmsService{
 				.POST(HttpRequest.BodyPublishers.ofString(createJsonBody(phoneNumber, message)));
 
 			if (apiuser != null && !apiuser.isEmpty()) {
-				request = request_builder.setHeader("Authorization", get_auth_header(apiuser, apitoken)).build();
+				request = request_builder.setHeader("Authorization", apiuser).build();
 			} else {
 				request = request_builder.build();
 			}
+
+			// Log the curl equivalent
+			String jsonBody = createJsonBody(phoneNumber, message);
+			logger.infof("Equivalent curl command: curl -X POST '%s' -H 'Content-Type: application/json' %s -d '%s'",
+				apiurl,
+				apiuser != null && !apiuser.isEmpty() ? "-H 'Authorization: " + apiuser + "'" : "",
+				jsonBody);
+
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
 			int statusCode = response.statusCode();
@@ -91,12 +94,6 @@ public class ApiSmsService implements SmsService{
 			message,
 			platformPartnerId
 		);
-	}
-
-	private static String get_auth_header(String apiuser, String apitoken) {
-		String authString = apiuser + ':' + apitoken;
-		String b64_cred = Base64.getEncoder().encodeToString(authString.getBytes());
-		return "Basic " + b64_cred;
 	}
 
 	private static String clean_phone_number(String phone_number, String countrycode) {
