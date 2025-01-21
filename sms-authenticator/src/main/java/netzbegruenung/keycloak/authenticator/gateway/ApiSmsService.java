@@ -25,11 +25,9 @@ import java.util.Map;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpRequest.Builder;
 import java.net.http.HttpResponse;
 import org.jboss.logging.Logger;
 import java.util.Base64;
-import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -40,52 +38,31 @@ public class ApiSmsService implements SmsService{
 	private static final Pattern plusPrefixPattern = Pattern.compile("\\+");
 
 	private final String apiurl;
-	private final Boolean urlencode;
-
 	private final String apitoken;
 	private final String apiuser;
-
-	private final String senderId;
+	private final String source;
 	private final String countrycode;
-
-	private final String apitokenattribute;
-	private final String messageattribute;
-	private final String receiverattribute;
-	private final String receiverJsonTemplate;
-	private final String senderattribute;
-
-	private final boolean hideResponsePayload;
-
+	private final String platformPartnerId;
+	
 	ApiSmsService(Map<String, String> config) {
 		apiurl = config.get("apiurl");
-		urlencode = Boolean.parseBoolean(config.getOrDefault("urlencode", "false"));
-
 		apitoken = config.getOrDefault("apitoken", "");
 		apiuser = config.getOrDefault("apiuser", "");
-
+		source = config.getOrDefault("source", "LINK TEST");
 		countrycode = config.getOrDefault("countrycode", "");
-		senderId = config.get("senderId");
-
-		apitokenattribute = config.getOrDefault("apitokenattribute", "");
-		messageattribute = config.get("messageattribute");
-		receiverattribute = config.get("receiverattribute");
-		receiverJsonTemplate = config.getOrDefault("receiverJsonTemplate", "\"%s\"");
-		senderattribute = config.get("senderattribute");
-
-		hideResponsePayload = Boolean.parseBoolean(config.get("hideResponsePayload"));
+		platformPartnerId = config.getOrDefault("platformPartnerId", "");
 	}
 
 	public void send(String phoneNumber, String message) {
 		phoneNumber = clean_phone_number(phoneNumber, countrycode);
-		Builder request_builder;
 		HttpRequest request = null;
 		var client = HttpClient.newHttpClient();
 		try {
-			if (urlencode) {
-				request_builder = urlencoded_request(phoneNumber, message);
-			} else {
-				request_builder = json_request(phoneNumber, message);
-			}
+			var request_builder = HttpRequest.newBuilder()
+				.uri(URI.create(apiurl))
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(createJsonBody(phoneNumber, message)));
+
 			if (apiuser != null && !apiuser.isEmpty()) {
 				request = request_builder.setHeader("Authorization", get_auth_header(apiuser, apitoken)).build();
 			} else {
@@ -94,7 +71,7 @@ public class ApiSmsService implements SmsService{
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
 			int statusCode = response.statusCode();
-			String payload = hideResponsePayload ? "redacted" : "Response: " + response.body();
+			String payload = "Response: " + response.body();
 
 			if (statusCode >= 200 && statusCode < 300) {
 				logger.infof("Sent SMS to %s [%s]", phoneNumber, payload);
@@ -106,31 +83,14 @@ public class ApiSmsService implements SmsService{
 		}
 	}
 
-	public Builder json_request(String phoneNumber, String message) {
-		String sendJson = "{"
-						  + Optional.ofNullable(apitokenattribute).map(it -> String.format("\"%s\":\"%s\",", it, apitoken)).orElse("")
-						  + String.format("\"%s\":\"%s\",", messageattribute, message)
-						  + String.format("\"%s\":%s,", receiverattribute, String.format(receiverJsonTemplate, phoneNumber))
-						  + String.format("\"%s\":\"%s\"", senderattribute, senderId)
-						  + "}";
-
-		 return HttpRequest.newBuilder()
-			.uri(URI.create(apiurl))
-			.header("Content-Type", "application/json")
-			.POST(HttpRequest.BodyPublishers.ofString(sendJson));
-	}
-
-	public Builder urlencoded_request(String phoneNumber, String message) {
-		String body = Optional.ofNullable(apitokenattribute)
-						  .map(it -> String.format("%s=%s&", it, URLEncoder.encode(apitoken, Charset.defaultCharset()))).orElse("")
-					  + String.format("%s=%s&", messageattribute, URLEncoder.encode(message, Charset.defaultCharset()))
-					  + String.format("%s=%s&", receiverattribute, URLEncoder.encode(phoneNumber, Charset.defaultCharset()))
-					  + String.format("%s=%s", senderattribute, URLEncoder.encode(senderId, Charset.defaultCharset()));
-
-		return HttpRequest.newBuilder()
-				.uri(URI.create(apiurl))
-				.header("Content-Type", "application/x-www-form-urlencoded")
-				.POST(HttpRequest.BodyPublishers.ofString(body));
+	private String createJsonBody(String phoneNumber, String message) {
+		return String.format(
+			"{\"source\":\"%s\",\"destination\":\"%s\",\"userData\":\"%s\",\"platformId\":\"SMS\",\"platformPartnerId\":\"%s\"}",
+			source,
+			phoneNumber,
+			message,
+			platformPartnerId
+		);
 	}
 
 	private static String get_auth_header(String apiuser, String apitoken) {
@@ -150,25 +110,25 @@ public class ApiSmsService implements SmsService{
 			return phone_number;
 		}
 		String country_number = plusPrefixPattern.matcher(countrycode).replaceFirst("");
-		// convert 49 to +49
+		// convert 47 to +47
 		if (phone_number.startsWith(country_number)) {
 			phone_number = phone_number.replaceFirst(country_number, countrycode);
-			logger.infof("Clean phone number: convert 49 to +49, set phone number to %s", phone_number);
+			logger.infof("Clean phone number: convert 47 to +47, set phone number to %s", phone_number);
 		}
-		// convert 0049 to +49
+		// convert 0047 to +47
 		if (phone_number.startsWith("00" + country_number)) {
 			phone_number = phone_number.replaceFirst("00" + country_number, countrycode);
-			logger.infof("Clean phone number: convert 0049 to +49, set phone number to %s", phone_number);
+			logger.infof("Clean phone number: convert 0047 to +47, set phone number to %s", phone_number);
 		}
-		// convert +490176 to +49176
+		// convert +470176 to +47176
 		if (phone_number.startsWith(countrycode + '0')) {
 			phone_number = phone_number.replaceFirst("\\+" + country_number + '0', countrycode);
-			logger.infof("Clean phone number: convert +490176 to +49176, set phone number to %s", phone_number);
+			logger.infof("Clean phone number: convert +470176 to +47176, set phone number to %s", phone_number);
 		}
-		// convert 0 to +49
+		// convert 0 to +47
 		if (phone_number.startsWith("0")) {
 			phone_number = phone_number.replaceFirst("0", countrycode);
-			logger.infof("Clean phone number: convert 0 to +49, set phone number to %s", phone_number);
+			logger.infof("Clean phone number: convert 0 to +47, set phone number to %s", phone_number);
 		}
 		return phone_number;
 	}
