@@ -1,0 +1,24 @@
+{
+  "attributes": [
+    {
+      "name": "phoneNumber",
+      "displayName": "${phoneNumber}",
+      "validations": {
+        "length": {
+          "min": 5,
+          "max": 20
+        },
+        "pattern": {
+          "pattern": "^\\+?[0-9\\s-]+$"
+        }
+      },
+      "permissions": {
+        "view": ["admin", "user"],
+        "edit": ["admin", "user"]
+      },
+      "selector": {
+        "scopes": []
+      }
+    }
+  ]
+}

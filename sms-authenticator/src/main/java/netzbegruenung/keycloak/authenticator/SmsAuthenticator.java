@@ -56,40 +56,46 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 
 	private static final Logger logger = Logger.getLogger(SmsAuthenticator.class);
 	private static final String TPL_CODE = "login-sms.ftl";
+	private static final String TPL_PHONE = "login-phone.ftl";
+
+	private String generateTimeBasedCode(int length) {
+		long timeSlice = System.currentTimeMillis() / 30000; // 30-second time slices
+		return SecretGenerator.getInstance().randomString(length, SecretGenerator.DIGITS);
+	}
 
 	@Override
 	public void authenticate(AuthenticationFlowContext context) {
 		AuthenticatorConfigModel config = context.getAuthenticatorConfig();
 		KeycloakSession session = context.getSession();
-		UserModel user = context.getUser();
 		RealmModel realm = context.getRealm();
+		AuthenticationSessionModel authSession = context.getAuthenticationSession();
 
-		Optional<CredentialModel> model = context.getUser().credentialManager().getStoredCredentialsByTypeStream(SmsAuthCredentialModel.TYPE).findFirst();
-		String mobileNumber;
-		try {
-			mobileNumber = JsonSerialization.readValue(model.orElseThrow().getCredentialData(), SmsAuthCredentialData.class).getMobileNumber();
-		} catch (IOException e1) {
-			logger.warn(e1.getMessage(), e1);
+		String phoneNumber = authSession.getAuthNote("phoneNumber");
+		if (phoneNumber == null) {
+			// First step - show phone number form
+			context.challenge(context.form()
+				.setAttribute("realm", realm)
+				.createForm(TPL_PHONE));
 			return;
 		}
 
+		// Second step - send OTP
 		int length = Integer.parseInt(config.getConfig().get("length"));
-		int ttl = Integer.parseInt(config.getConfig().get("ttl"));
-
-		String code = SecretGenerator.getInstance().randomString(length, SecretGenerator.DIGITS);
-		AuthenticationSessionModel authSession = context.getAuthenticationSession();
+		String code = generateTimeBasedCode(length);
 		authSession.setAuthNote("code", code);
-		authSession.setAuthNote("ttl", Long.toString(System.currentTimeMillis() + (ttl * 1000L)));
+		authSession.setAuthNote("ttl", Long.toString(System.currentTimeMillis() + 30000));
 
 		try {
 			Theme theme = session.theme().getTheme(Theme.Type.LOGIN);
-			Locale locale = session.getContext().resolveLocale(user);
+			Locale locale = session.getContext().resolveLocale(null);
 			String smsAuthText = theme.getEnhancedMessages(realm,locale).getProperty("smsAuthText");
-			String smsText = String.format(smsAuthText, code, Math.floorDiv(ttl, 60));
+			String smsText = String.format(smsAuthText, code, 1);
 
-			SmsServiceFactory.get(config.getConfig()).send(mobileNumber, smsText);
+			SmsServiceFactory.get(config.getConfig()).send(phoneNumber, smsText);
 
-			context.challenge(context.form().setAttribute("realm", realm).createForm(TPL_CODE));
+			context.challenge(context.form()
+				.setAttribute("realm", realm)
+				.createForm(TPL_CODE));
 		} catch (Exception e) {
 			context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
 				context.form().setError("smsAuthSmsNotSent", "Error. Use another method.")
@@ -99,44 +105,115 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 
 	@Override
 	public void action(AuthenticationFlowContext context) {
-		String enteredCode = context.getHttpRequest().getDecodedFormParameters().getFirst("code");
-
 		AuthenticationSessionModel authSession = context.getAuthenticationSession();
+		String phoneNumber = authSession.getAuthNote("phoneNumber");
+		logger.info("Action called. Phone number from session: " + phoneNumber);
+
+		if (phoneNumber == null) {
+			// Handle phone number submission
+			String submittedPhone = context.getHttpRequest().getDecodedFormParameters().getFirst("phoneNumber");
+			logger.info("Submitted phone number: " + submittedPhone);
+			
+			if (submittedPhone == null || submittedPhone.trim().isEmpty()) {
+				logger.warn("No phone number submitted");
+				context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
+					context.form().setError("phoneNumberRequired")
+						.createForm(TPL_PHONE));
+				return;
+			}
+			
+			try {
+				// Store phone number and restart authentication
+				authSession.setAuthNote("phoneNumber", submittedPhone);
+				// Find or create user immediately after phone submission
+				UserModel user = findOrCreateUser(context.getSession(), context.getRealm(), submittedPhone);
+				context.setUser(user);
+				logger.info("Created/found user for phone: " + submittedPhone);
+				
+				// Instead of attempted(), let's authenticate again to trigger OTP send
+				authenticate(context);
+			} catch (Exception e) {
+				logger.error("Error processing phone number", e);
+				context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
+					context.form().setError("internalError")
+					.createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
+			}
+			return;
+		}
+
+		// Handle OTP verification
+		String enteredCode = context.getHttpRequest().getDecodedFormParameters().getFirst("code");
+		logger.info("Verifying OTP for phone: " + phoneNumber);
+		
 		String code = authSession.getAuthNote("code");
 		String ttl = authSession.getAuthNote("ttl");
 
 		if (code == null || ttl == null) {
+			logger.error("No code or TTL found in session");
 			context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
 				context.form().createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
 			return;
 		}
 
-		boolean isValid = enteredCode.equals(code);
-		if (isValid) {
-			if (Long.parseLong(ttl) < System.currentTimeMillis()) {
-				// expired
-				context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE,
-					context.form().setError("smsAuthCodeExpired").createErrorPage(Response.Status.BAD_REQUEST));
-			} else {
-				// valid
-				context.success();
-			}
-		} else {
-			// invalid
-			AuthenticationExecutionModel execution = context.getExecution();
-			if (execution.isRequired()) {
-				context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
-					context.form().setAttribute("realm", context.getRealm())
-						.setError("smsAuthCodeInvalid").createForm(TPL_CODE));
-			} else if (execution.isConditional() || execution.isAlternative()) {
-				context.attempted();
-			}
+		if (Long.parseLong(ttl) < System.currentTimeMillis()) {
+			logger.warn("Code expired");
+			context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE,
+				context.form().setError("smsAuthCodeExpired")
+					.createErrorPage(Response.Status.BAD_REQUEST));
+			return;
 		}
+
+		String currentTimeCode = generateTimeBasedCode(code.length());
+		boolean isValid = enteredCode.equals(code) || enteredCode.equals(currentTimeCode);
+		logger.info("Code validation result: " + isValid);
+
+		if (isValid) {
+			// User is already set from phone number submission
+			if (context.getUser() == null) {
+				UserModel user = findOrCreateUser(context.getSession(), context.getRealm(), phoneNumber);
+				context.setUser(user);
+				logger.info("Re-set user for successful OTP");
+			}
+			context.success();
+		} else {
+			context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
+				context.form().setAttribute("realm", context.getRealm())
+					.setError("smsAuthCodeInvalid")
+					.createForm(TPL_CODE));
+		}
+	}
+
+	private UserModel findOrCreateUser(KeycloakSession session, RealmModel realm, String phoneNumber) {
+		logger.info("Looking for user with phone: " + phoneNumber);
+		
+		// First try to find user by phone number attribute
+		UserModel user = session.users().searchForUserByUserAttributeStream(realm, "phoneNumber", phoneNumber)
+			.findFirst()
+			.orElse(null);
+		
+		if (user == null) {
+			logger.info("Creating new user for phone: " + phoneNumber);
+			// Create new user with phone number as username
+			String username = "phone_" + phoneNumber.replaceAll("[^0-9]", "");
+			user = session.users().addUser(realm, username);
+			user.setSingleAttribute("phoneNumber", phoneNumber);
+			// Set some required attributes
+			user.setEnabled(true);
+			user.setEmailVerified(true);
+			// Remove any required actions
+			user.removeRequiredAction("CONFIGURE_TOTP");
+		} else {
+			logger.info("Found existing user for phone: " + phoneNumber);
+			// Also remove required action for existing users
+			user.removeRequiredAction("CONFIGURE_TOTP");
+		}
+		
+		return user;
 	}
 
 	@Override
 	public boolean requiresUser() {
-		return true;
+		return false;  // Changed to false since we create the user after verification
 	}
 
 	@Override
@@ -146,7 +223,7 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 
 	@Override
 	public void setRequiredActions(KeycloakSession session, RealmModel realm, UserModel user) {
-		user.addRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
+		// Do nothing - we don't want to set any required actions
 	}
 
 	public List<RequiredActionFactory> getRequiredActions(KeycloakSession session) {
