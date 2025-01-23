@@ -21,64 +21,35 @@
 
 package netzbegruenung.keycloak.authenticator.credentials;
 
-import org.keycloak.common.util.Time;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.util.JsonSerialization;
 
 import java.io.IOException;
 
 public class SmsAuthCredentialModel extends CredentialModel {
-	public static final String TYPE = "mobile-number";
+    public static final String TYPE = "sms-auth";
 
-	private final SmsAuthCredentialData mobileNumber;
+    private SmsAuthCredentialModel() {
+        setType(TYPE);
+    }
 
+    public static SmsAuthCredentialModel createFromCredentialData(String phoneNumber) {
+        SmsAuthCredentialModel credentialModel = new SmsAuthCredentialModel();
+        SmsAuthCredentialData credentialData = new SmsAuthCredentialData();
+        credentialData.setMobileNumber(phoneNumber);
+        try {
+            credentialModel.setCredentialData(JsonSerialization.writeValueAsString(credentialData));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return credentialModel;
+    }
 
-	private SmsAuthCredentialModel(SmsAuthCredentialData mobileNumber) {
-		this.mobileNumber = mobileNumber;
-	}
-
-	private SmsAuthCredentialModel(String mobileNumberString) {
-		mobileNumber = new SmsAuthCredentialData(mobileNumberString);
-	}
-
-	public static SmsAuthCredentialModel createFromModel(CredentialModel credentialModel){
-		try {
-			SmsAuthCredentialData credentialData = JsonSerialization.readValue(credentialModel.getCredentialData(), SmsAuthCredentialData.class);
-
-			SmsAuthCredentialModel smsAuthenticatorModel = new SmsAuthCredentialModel(credentialData);
-			smsAuthenticatorModel.setUserLabel(
-					"Mobile Number: ***" + credentialData.getMobileNumber().substring(
-							Math.max(credentialData.getMobileNumber().length() - 3, 0)
-					)
-			);
-			smsAuthenticatorModel.setCreatedDate(credentialModel.getCreatedDate());
-			smsAuthenticatorModel.setType(TYPE);
-			smsAuthenticatorModel.setId(credentialModel.getId());
-			smsAuthenticatorModel.setCredentialData(credentialModel.getCredentialData());
-			return smsAuthenticatorModel;
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-
-	public static SmsAuthCredentialModel createSmsAuthenticator(String mobileNumber) {
-		SmsAuthCredentialModel credentialModel = new SmsAuthCredentialModel(mobileNumber);
-		credentialModel.fillCredentialModelFields();
-		return credentialModel;
-	}
-
-	public SmsAuthCredentialData getSmsAuthenticatorData() {
-		return mobileNumber;
-	}
-
-	private void fillCredentialModelFields(){
-		try {
-			setCredentialData(JsonSerialization.writeValueAsString(mobileNumber));
-			setType(TYPE);
-			setCreatedDate(Time.currentTimeMillis());
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-	}
+    public String getPhoneNumber() {
+        try {
+            return JsonSerialization.readValue(getCredentialData(), SmsAuthCredentialData.class).getMobileNumber();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

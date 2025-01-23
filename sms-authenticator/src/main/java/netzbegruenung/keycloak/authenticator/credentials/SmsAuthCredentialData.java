@@ -20,18 +20,17 @@
 
 package netzbegruenung.keycloak.authenticator.credentials;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 public class SmsAuthCredentialData {
+    private String mobileNumber;
 
-	private final String mobileNumber;
+    public SmsAuthCredentialData() {
+    }
 
-	//@JsonCreator
-	public SmsAuthCredentialData(@JsonProperty("mobile_number") String mobileNumber) {
-		this.mobileNumber = mobileNumber;
-	}
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
 
-	public String getMobileNumber() {
-		return mobileNumber;
-	}
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
 }

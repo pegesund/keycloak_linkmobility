@@ -88,61 +88,20 @@ public class PhoneValidationRequiredAction implements RequiredActionProvider, Cr
 		}
 	}
 
+	private SmsAuthCredentialProvider getCredentialProvider(KeycloakSession session) {
+        return (SmsAuthCredentialProvider) session.getProvider(CredentialProvider.class, SmsAuthCredentialModel.TYPE);
+    }
+
 	@Override
 	public void processAction(RequiredActionContext context) {
-		String enteredCode = context.getHttpRequest().getDecodedFormParameters().getFirst("code");
-
-		AuthenticationSessionModel authSession = context.getAuthenticationSession();
-		String mobileNumber = authSession.getAuthNote("mobile_number");
-		String code = authSession.getAuthNote("code");
-		String ttl = authSession.getAuthNote("ttl");
-
-		if (code == null || ttl == null || enteredCode == null) {
-			logger.warn("Phone number is not set");
-			handleInvalidSmsCode(context);
-			return;
-		}
-
-		boolean isValid = enteredCode.equals(code);
-		if (isValid && Long.parseLong(ttl) > System.currentTimeMillis()) {
-			// valid
-			SmsAuthCredentialProvider smnp = (SmsAuthCredentialProvider) context.getSession().getProvider(CredentialProvider.class, "mobile-number");
-			if (!smnp.isConfiguredFor(context.getRealm(), context.getUser(), SmsAuthCredentialModel.TYPE)) {
-				smnp.createCredential(context.getRealm(), context.getUser(), SmsAuthCredentialModel.createSmsAuthenticator(mobileNumber));
-			} else {
-				smnp.updateCredential(
-					context.getRealm(),
-					context.getUser(),
-					new UserCredentialModel("random_id", "mobile-number", mobileNumber)
-				);
-			}
-			context.getUser().removeRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
-			handlePhoneToAttribute(context, mobileNumber);
+		String phoneNumber = context.getHttpRequest().getDecodedFormParameters().getFirst("mobile_number");
+		if (phoneNumber != null) {
+			UserModel user = context.getUser();
+			SmsAuthCredentialProvider provider = getCredentialProvider(context.getSession());
+			SmsAuthCredentialModel credential = SmsAuthCredentialModel.createFromCredentialData(phoneNumber);
+			provider.createCredential(context.getRealm(), user, credential);
 			context.success();
-		} else {
-			// invalid or expired
-			handleInvalidSmsCode(context);
 		}
-	}
-
-	private void handlePhoneToAttribute(RequiredActionContext context, String mobileNumber) {
-		AuthenticatorConfigModel config = context.getRealm().getAuthenticatorConfigByAlias("sms-2fa");
-		if (config == null) {
-			logger.warn("No config alias sms-2fa found, skip phone number to attribute check");
-		} else {
-			if (Boolean.parseBoolean(config.getConfig().get("storeInAttribute"))) {
-				context.getUser().setSingleAttribute("mobile_number", mobileNumber);
-			}
-		}
-	}
-
-	private void handleInvalidSmsCode(RequiredActionContext context) {
-		Response challenge = context
-			.form()
-			.setAttribute("realm", context.getRealm())
-			.setError("smsAuthCodeInvalid")
-			.createForm("login-sms.ftl");
-		context.challenge(challenge);
 	}
 
 	@Override

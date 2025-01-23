@@ -21,45 +21,28 @@
 
 package netzbegruenung.keycloak.authenticator;
 
+import netzbegruenung.keycloak.authenticator.credentials.SmsAuthCredentialData;
 import netzbegruenung.keycloak.authenticator.credentials.SmsAuthCredentialModel;
-import org.keycloak.common.util.Time;
-import org.keycloak.credential.CredentialInput;
-import org.keycloak.credential.CredentialInputUpdater;
-import org.keycloak.credential.CredentialInputValidator;
-import org.keycloak.credential.CredentialModel;
-import org.keycloak.credential.CredentialProvider;
-import org.keycloak.credential.CredentialTypeMetadata;
-import org.keycloak.credential.CredentialTypeMetadataContext;
+import org.jboss.logging.Logger;
+import org.keycloak.credential.*;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
-import org.keycloak.models.UserCredentialModel;
 import org.keycloak.models.UserModel;
-import java.util.*;
-import java.util.stream.Stream;
+import org.keycloak.util.JsonSerialization;
 
-public class SmsAuthCredentialProvider implements CredentialProvider<SmsAuthCredentialModel>, CredentialInputValidator, CredentialInputUpdater {
+import java.io.IOException;
 
-    protected final KeycloakSession session;
+public class SmsAuthCredentialProvider implements CredentialProvider<SmsAuthCredentialModel>, CredentialInputValidator {
+    private static final Logger logger = Logger.getLogger(SmsAuthCredentialProvider.class);
+    private final KeycloakSession session;
 
     public SmsAuthCredentialProvider(KeycloakSession session) {
         this.session = session;
     }
 
     @Override
-    public boolean isValid(RealmModel realm, UserModel user, CredentialInput input) {
-        if (!(input instanceof UserCredentialModel)) {
-            return false;
-        }
-        if (!input.getType().equals(getType())) {
-            return false;
-        }
-        String challengeResponse = input.getChallengeResponse();
-        if (challengeResponse == null) {
-            return false;
-        }
-        CredentialModel credentialModel = user.credentialManager().getStoredCredentialById(input.getCredentialId());
-        SmsAuthCredentialModel sqcm = getCredentialFromModel(credentialModel);
-        return sqcm.getSmsAuthenticatorData().getMobileNumber().equals(challengeResponse);
+    public String getType() {
+        return SmsAuthCredentialModel.TYPE;
     }
 
     @Override
@@ -69,28 +52,41 @@ public class SmsAuthCredentialProvider implements CredentialProvider<SmsAuthCred
 
     @Override
     public boolean isConfiguredFor(RealmModel realm, UserModel user, String credentialType) {
-        if (!supportsCredentialType(credentialType)) return false;
+        if (!supportsCredentialType(credentialType)) {
+            return false;
+        }
         return user.credentialManager().getStoredCredentialsByTypeStream(credentialType).findAny().isPresent();
     }
 
     @Override
-    public CredentialModel createCredential(RealmModel realm, UserModel user, SmsAuthCredentialModel credentialModel) {
-        credentialModel.setCreatedDate(Time.currentTimeMillis());
-        return user.credentialManager().createStoredCredential(credentialModel);
+    public boolean isValid(RealmModel realm, UserModel user, CredentialInput input) {
+        if (!(input instanceof CredentialInput)) {
+            return false;
+        }
+        if (!input.getType().equals(getType())) {
+            return false;
+        }
+        String challengeResponse = input.getChallengeResponse();
+        if (challengeResponse == null) {
+            return false;
+        }
+        return user.credentialManager().getStoredCredentialsByTypeStream(input.getType()).findAny().isPresent();
     }
 
     @Override
-    public boolean updateCredential(RealmModel realm, UserModel user, CredentialInput input) {
-        String mobileNumber = input.getChallengeResponse();
-        Optional<CredentialModel> model = user.credentialManager().getStoredCredentialsByTypeStream(input.getType()).findFirst();
-        if (model.isPresent()) {
-            CredentialModel credentialModel = model.get();
-            deleteCredential(realm, user, credentialModel.getId());
-            createCredential(realm, user, SmsAuthCredentialModel.createSmsAuthenticator(mobileNumber));
-            return true;
-        } else {
-            return false;
+    public CredentialModel createCredential(RealmModel realm, UserModel user, SmsAuthCredentialModel credentialModel) {
+        if (credentialModel.getCreatedDate() == null) {
+            credentialModel.setCreatedDate(System.currentTimeMillis());
         }
+        credentialModel.setUserLabel("Phone: " + maskPhoneNumber(getPhoneNumber(credentialModel)));
+        return user.credentialManager().createStoredCredential(credentialModel);
+    }
+
+    private String maskPhoneNumber(String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.length() < 4) {
+            return "****";
+        }
+        return "****" + phoneNumber.substring(Math.max(0, phoneNumber.length() - 4));
     }
 
     @Override
@@ -100,31 +96,34 @@ public class SmsAuthCredentialProvider implements CredentialProvider<SmsAuthCred
 
     @Override
     public SmsAuthCredentialModel getCredentialFromModel(CredentialModel model) {
-        return SmsAuthCredentialModel.createFromModel(model);
+        return SmsAuthCredentialModel.createFromCredentialData(getPhoneNumber(model));
+    }
+
+    private String getPhoneNumber(CredentialModel model) {
+        try {
+            return JsonSerialization.readValue(model.getCredentialData(), SmsAuthCredentialData.class).getMobileNumber();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String getPhoneNumber(SmsAuthCredentialModel model) {
+        try {
+            return JsonSerialization.readValue(model.getCredentialData(), SmsAuthCredentialData.class).getMobileNumber();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public CredentialTypeMetadata getCredentialTypeMetadata(CredentialTypeMetadataContext metadataContext) {
         return CredentialTypeMetadata.builder()
-                .type(getType())
-                .category(CredentialTypeMetadata.Category.TWO_FACTOR)
-                .displayName("smsAuthenticator")
-                .helpText("smsPhoneUpdate")
-                .createAction(PhoneNumberRequiredAction.PROVIDER_ID)
-                .removeable(true)
-                .build(session);
+            .type(getType())
+            .category(CredentialTypeMetadata.Category.TWO_FACTOR)
+            .displayName("Phone Number")
+            .helpText("Phone number used for SMS authentication")
+            .createAction(PhoneNumberRequiredAction.PROVIDER_ID)
+            .removeable(true)
+            .build(session);
     }
-
-    @Override
-    public String getType() {
-        return SmsAuthCredentialModel.TYPE;
-    }
-
-    @Override
-    public Stream<String> getDisableableCredentialTypesStream(RealmModel realm, UserModel user) {
-        return Stream.empty();
-    }
-
-    @Override
-    public void disableCredentialType(RealmModel realm, UserModel user, String credentialType) {}
 }

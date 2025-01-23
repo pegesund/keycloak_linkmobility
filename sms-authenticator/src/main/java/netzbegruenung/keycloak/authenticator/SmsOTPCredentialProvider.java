@@ -37,7 +37,11 @@ public class SmsOTPCredentialProvider implements CredentialProvider<OTPCredentia
     public CredentialModel createCredential(RealmModel realm, UserModel user, OTPCredentialModel credentialModel) {
         if (credentialModel.getOTPCredentialData() != null) {
             // Send the OTP secret via SMS when creating the credential
-            sendOTPViaSMS(user, credentialModel.getOTPSecretData().getValue());
+            String phoneNumber = getPhoneNumber(user);
+            if (phoneNumber != null) {
+                credentialModel.setUserLabel("SMS OTP for " + maskPhoneNumber(phoneNumber));
+                sendOTPViaSMS(user, credentialModel.getOTPSecretData().getValue());
+            }
         }
 
         return user.credentialManager().createStoredCredential(credentialModel);
@@ -112,9 +116,9 @@ public class SmsOTPCredentialProvider implements CredentialProvider<OTPCredentia
         return CredentialTypeMetadata.builder()
             .type(getType())
             .category(CredentialTypeMetadata.Category.TWO_FACTOR)
-            .displayName("OTP")
-            .helpText("OTP via SMS")
-            .createAction(UserModel.RequiredAction.CONFIGURE_TOTP.toString())
+            .displayName("SMS OTP")
+            .helpText("One-time password sent via SMS")
+            .createAction(PhoneValidationRequiredAction.PROVIDER_ID)
             .removeable(true)
             .build(session);
     }
@@ -151,5 +155,30 @@ public class SmsOTPCredentialProvider implements CredentialProvider<OTPCredentia
         } catch (IOException e) {
             logger.error("Failed to send OTP via SMS", e);
         }
+    }
+
+    private String maskPhoneNumber(String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.length() < 4) {
+            return "****";
+        }
+        return "****" + phoneNumber.substring(Math.max(0, phoneNumber.length() - 4));
+    }
+
+    private String getPhoneNumber(UserModel user) {
+        try {
+            Optional<CredentialModel> model = user.credentialManager()
+                .getStoredCredentialsByTypeStream(SmsAuthCredentialModel.TYPE)
+                .findFirst();
+
+            if (model.isPresent()) {
+                return JsonSerialization.readValue(
+                    model.get().getCredentialData(), 
+                    SmsAuthCredentialData.class
+                ).getMobileNumber();
+            }
+        } catch (IOException e) {
+            logger.error("Error getting phone number", e);
+        }
+        return null;
     }
 }

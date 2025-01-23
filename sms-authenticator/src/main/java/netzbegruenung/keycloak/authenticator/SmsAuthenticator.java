@@ -186,7 +186,7 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 	private UserModel findOrCreateUser(KeycloakSession session, RealmModel realm, String phoneNumber) {
 		logger.info("Looking for user with phone: " + phoneNumber);
 		
-		// First try to find user by phone number attribute
+		// First try to find user by credential
 		UserModel user = session.users().searchForUserByUserAttributeStream(realm, "phoneNumber", phoneNumber)
 			.findFirst()
 			.orElse(null);
@@ -196,15 +196,25 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 			// Create new user with phone number as username
 			String username = "phone_" + phoneNumber.replaceAll("[^0-9]", "");
 			user = session.users().addUser(realm, username);
-			user.setSingleAttribute("phoneNumber", phoneNumber);
-			// Set some required attributes
+			user.setFirstName("Phone User");  // Optional: set a default name
 			user.setEnabled(true);
 			user.setEmailVerified(true);
+			
+			// Store phone number as credential
+			SmsAuthCredentialModel credential = SmsAuthCredentialModel.createFromCredentialData(phoneNumber);
+			user.credentialManager().createStoredCredential(credential);
+			
 			// Remove any required actions
 			user.removeRequiredAction("CONFIGURE_TOTP");
 		} else {
 			logger.info("Found existing user for phone: " + phoneNumber);
-			// Also remove required action for existing users
+			// Update phone number if it changed
+			SmsAuthCredentialProvider provider = getCredentialProvider(session);
+			if (!provider.isConfiguredFor(realm, user, getType(session))) {
+				SmsAuthCredentialModel credential = SmsAuthCredentialModel.createFromCredentialData(phoneNumber);
+				user.credentialManager().createStoredCredential(credential);
+			}
+			// Remove required action
 			user.removeRequiredAction("CONFIGURE_TOTP");
 		}
 		
