@@ -125,10 +125,19 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 			try {
 				// Store phone number and restart authentication
 				authSession.setAuthNote("phoneNumber", submittedPhone);
-				// Find or create user immediately after phone submission
+				// Find user by phone number
 				UserModel user = findOrCreateUser(context.getSession(), context.getRealm(), submittedPhone);
+				if (user == null) {
+					logger.warn("No user found with phone number: " + submittedPhone);
+					// Clear the session state
+					authSession.removeAuthNote("phoneNumber");
+					context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
+						context.form().setError("invalidPhoneNumber", "No user found with this phone number")
+							.createForm(TPL_PHONE));
+					return;
+				}
 				context.setUser(user);
-				logger.info("Created/found user for phone: " + submittedPhone);
+				logger.info("Found user for phone: " + submittedPhone);
 				
 				// Instead of attempted(), let's authenticate again to trigger OTP send
 				authenticate(context);
@@ -151,7 +160,8 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 		if (code == null || ttl == null) {
 			logger.error("No code or TTL found in session");
 			context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
-				context.form().createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
+				context.form().setError("internalError", "An error occurred. Please try again.")
+					.createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
 			return;
 		}
 
@@ -186,36 +196,22 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 	private UserModel findOrCreateUser(KeycloakSession session, RealmModel realm, String phoneNumber) {
 		logger.info("Looking for user with phone: " + phoneNumber);
 		
-		// First try to find user by credential
+		// Only try to find user by credential
 		UserModel user = session.users().searchForUserByUserAttributeStream(realm, "phoneNumber", phoneNumber)
 			.findFirst()
 			.orElse(null);
 		
 		if (user == null) {
-			logger.info("Creating new user for phone: " + phoneNumber);
-			// Create new user with phone number as username
-			String username = "phone_" + phoneNumber.replaceAll("[^0-9]", "");
-			user = session.users().addUser(realm, username);
-			user.setFirstName("Phone User");  // Optional: set a default name
-			user.setEnabled(true);
-			user.setEmailVerified(true);
-			
-			// Store phone number as credential
-			SmsAuthCredentialModel credential = SmsAuthCredentialModel.createFromCredentialData(phoneNumber);
-			user.credentialManager().createStoredCredential(credential);
-			
-			// Remove any required actions
-			user.removeRequiredAction("CONFIGURE_TOTP");
-		} else {
-			logger.info("Found existing user for phone: " + phoneNumber);
-			// Update phone number if it changed
-			SmsAuthCredentialProvider provider = getCredentialProvider(session);
-			if (!provider.isConfiguredFor(realm, user, getType(session))) {
-				SmsAuthCredentialModel credential = SmsAuthCredentialModel.createFromCredentialData(phoneNumber);
-				user.credentialManager().createStoredCredential(credential);
-			}
-			// Remove required action
-			user.removeRequiredAction("CONFIGURE_TOTP");
+			logger.info("No user found for phone: " + phoneNumber);
+			return null;
+		}
+		
+		logger.info("Found existing user for phone: " + phoneNumber);
+		// Verify phone credential exists
+		SmsAuthCredentialProvider provider = getCredentialProvider(session);
+		if (!provider.isConfiguredFor(realm, user, getType(session))) {
+			logger.warn("User found but phone credential not configured");
+			return null;
 		}
 		
 		return user;

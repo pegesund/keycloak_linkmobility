@@ -36,15 +36,16 @@ public class SmsOTPCredentialProvider implements CredentialProvider<OTPCredentia
     @Override
     public CredentialModel createCredential(RealmModel realm, UserModel user, OTPCredentialModel credentialModel) {
         if (credentialModel.getOTPCredentialData() != null) {
-            // Send the OTP secret via SMS when creating the credential
             String phoneNumber = getPhoneNumber(user);
-            if (phoneNumber != null) {
-                credentialModel.setUserLabel("SMS OTP for " + maskPhoneNumber(phoneNumber));
-                sendOTPViaSMS(user, credentialModel.getOTPSecretData().getValue());
+            if (phoneNumber == null) {
+                throw new IllegalStateException("Cannot create SMS OTP credential: No phone number registered for user");
             }
+            
+            credentialModel.setUserLabel("SMS OTP for " + maskPhoneNumber(phoneNumber));
+            sendOTPViaSMS(user, credentialModel.getOTPSecretData().getValue());
+            return user.credentialManager().createStoredCredential(credentialModel);
         }
-
-        return user.credentialManager().createStoredCredential(credentialModel);
+        throw new IllegalStateException("Cannot create SMS OTP credential: No OTP data provided");
     }
 
     @Override
@@ -67,6 +68,13 @@ public class SmsOTPCredentialProvider implements CredentialProvider<OTPCredentia
         if (!supportsCredentialType(credentialType)) {
             return false;
         }
+
+        // First check if user has a phone number registered
+        if (getPhoneNumber(user) == null) {
+            return false;
+        }
+
+        // Then check if they have an OTP credential
         return user.credentialManager()
             .getStoredCredentialsByTypeStream(credentialType)
             .findAny()
