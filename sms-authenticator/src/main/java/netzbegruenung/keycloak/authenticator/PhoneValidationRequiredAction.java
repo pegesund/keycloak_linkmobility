@@ -22,19 +22,15 @@
 
 package netzbegruenung.keycloak.authenticator;
 
-import netzbegruenung.keycloak.authenticator.credentials.SmsAuthCredentialModel;
 import netzbegruenung.keycloak.authenticator.gateway.SmsServiceFactory;
 
 import org.jboss.logging.Logger;
-import org.keycloak.authentication.CredentialRegistrator;
 import org.keycloak.authentication.RequiredActionContext;
 import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.common.util.SecretGenerator;
-import org.keycloak.credential.CredentialProvider;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
-import org.keycloak.models.UserCredentialModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.theme.Theme;
@@ -42,9 +38,10 @@ import org.keycloak.theme.Theme;
 import java.util.Locale;
 import jakarta.ws.rs.core.Response;
 
-public class PhoneValidationRequiredAction implements RequiredActionProvider, CredentialRegistrator {
+public class PhoneValidationRequiredAction implements RequiredActionProvider {
 	private static final Logger logger = Logger.getLogger(PhoneValidationRequiredAction.class);
 	public static final String PROVIDER_ID = "phone_validation_config";
+	private static final String MOBILE_NUMBER_ATTRIBUTE = "mobile_number";
 
 	@Override
 	public void evaluateTriggers(RequiredActionContext context) {
@@ -98,41 +95,24 @@ public class PhoneValidationRequiredAction implements RequiredActionProvider, Cr
 		String ttl = authSession.getAuthNote("ttl");
 
 		if (code == null || ttl == null || enteredCode == null) {
-			logger.warn("Phone number is not set");
+			logger.warn("Code or TTL is not set");
 			handleInvalidSmsCode(context);
 			return;
 		}
 
 		boolean isValid = enteredCode.equals(code);
 		if (isValid && Long.parseLong(ttl) > System.currentTimeMillis()) {
-			// valid
-			SmsAuthCredentialProvider smnp = (SmsAuthCredentialProvider) context.getSession().getProvider(CredentialProvider.class, "mobile-number");
-			if (!smnp.isConfiguredFor(context.getRealm(), context.getUser(), SmsAuthCredentialModel.TYPE)) {
-				smnp.createCredential(context.getRealm(), context.getUser(), SmsAuthCredentialModel.createSmsAuthenticator(mobileNumber));
-			} else {
-				smnp.updateCredential(
-					context.getRealm(),
-					context.getUser(),
-					new UserCredentialModel("random_id", "mobile-number", mobileNumber)
-				);
-			}
+			// valid - store the mobile number as an attribute
+			context.getUser().setSingleAttribute(MOBILE_NUMBER_ATTRIBUTE, mobileNumber);
+			logger.infof("Successfully validated and stored mobile number [%s] for user: %s", 
+				mobileNumber, context.getUser().getUsername());
+			
+			// Remove the required actions since validation is complete
 			context.getUser().removeRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
-			handlePhoneToAttribute(context, mobileNumber);
 			context.success();
 		} else {
 			// invalid or expired
 			handleInvalidSmsCode(context);
-		}
-	}
-
-	private void handlePhoneToAttribute(RequiredActionContext context, String mobileNumber) {
-		AuthenticatorConfigModel config = context.getRealm().getAuthenticatorConfigByAlias("sms-2fa");
-		if (config == null) {
-			logger.warn("No config alias sms-2fa found, skip phone number to attribute check");
-		} else {
-			if (Boolean.parseBoolean(config.getConfig().get("storeInAttribute"))) {
-				context.getUser().setSingleAttribute("mobile_number", mobileNumber);
-			}
 		}
 	}
 
@@ -147,10 +127,5 @@ public class PhoneValidationRequiredAction implements RequiredActionProvider, Cr
 
 	@Override
 	public void close() {
-	}
-
-	@Override
-	public String getCredentialType(KeycloakSession keycloakSession, AuthenticationSessionModel authenticationSessionModel) {
-		return SmsAuthCredentialModel.TYPE;
 	}
 }

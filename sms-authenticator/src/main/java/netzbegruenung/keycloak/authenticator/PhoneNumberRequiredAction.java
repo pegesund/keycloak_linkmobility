@@ -26,14 +26,11 @@ import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber.PhoneNumber;
 import jakarta.ws.rs.core.Response;
-import netzbegruenung.keycloak.authenticator.credentials.SmsAuthCredentialModel;
 import org.jboss.logging.Logger;
-import org.keycloak.authentication.CredentialRegistrator;
 import org.keycloak.authentication.InitiatedActionSupport;
 import org.keycloak.authentication.RequiredActionContext;
 import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.authentication.requiredactions.WebAuthnRegisterFactory;
-import org.keycloak.credential.CredentialModel;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RoleModel;
@@ -49,9 +46,10 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-public class PhoneNumberRequiredAction implements RequiredActionProvider, CredentialRegistrator {
+public class PhoneNumberRequiredAction implements RequiredActionProvider {
 
 	public static final String PROVIDER_ID = "mobile_number_config";
+	private static final String MOBILE_NUMBER_ATTRIBUTE = "mobile_number";
 
 	private static final Logger logger = Logger.getLogger(PhoneNumberRequiredAction.class);
 	private static final Splitter numberFilterSplitter = Splitter.on("##");
@@ -89,18 +87,9 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider, Creden
 			context.getAuthenticationSession().setAuthNote("mobileInputFieldPlaceholder",
 				config.getConfig().getOrDefault("mobileInputFieldPlaceholder", ""));
 
-			// list of accepted 2FA alternatives
-			List<String> secondFactors = Arrays.asList(
-				SmsAuthCredentialModel.TYPE,
-				WebAuthnCredentialModel.TYPE_TWOFACTOR,
-				OTPCredentialModel.TYPE
-			);
-			Stream<CredentialModel> credentials = context
-				.getUser()
-				.credentialManager()
-				.getStoredCredentialsStream();
-			if (credentials.anyMatch(x -> secondFactors.contains(x.getType()))) {
-				// skip as 2FA is already set
+			// Check if user has mobile number attribute
+			if (context.getUser().getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE) != null) {
+				// skip as mobile number is already set
 				return;
 			}
 
@@ -121,7 +110,7 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider, Creden
 			Stream<String> usersRequiredActions = context.getUser().getRequiredActionsStream();
 			if (usersRequiredActions.noneMatch(availableRequiredActions::contains)) {
 				logger.infof(
-					"No 2FA method configured for user: %s, setting required action for SMS authenticator",
+					"No mobile number configured for user: %s, setting required action for SMS authenticator",
 					context.getUser().getUsername()
 				);
 				context.getUser().addRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
@@ -166,10 +155,22 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider, Creden
 			}
 		}
 
+		// Store mobile number as user attribute
+		context.getUser().setSingleAttribute(MOBILE_NUMBER_ATTRIBUTE, mobileNumber);
+		logger.infof("Stored mobile number [%s] for user: %s", mobileNumber, context.getUser().getUsername());
+
 		authSession.setAuthNote("mobile_number", mobileNumber);
 		logger.infof("Add required action for phone validation: [%s], user: %s", mobileNumber, context.getUser().getUsername());
 		context.getAuthenticationSession().addRequiredAction(PhoneValidationRequiredAction.PROVIDER_ID);
 		context.success();
+	}
+
+	private void handleInvalidNumber(RequiredActionContext context, String error) {
+		Response challenge = context.form()
+			.setError(error)
+			.setAttribute("mobileInputFieldPlaceholder", context.getAuthenticationSession().getAuthNote("mobileInputFieldPlaceholder"))
+			.createForm("mobile_number_form.ftl");
+		context.challenge(challenge);
 	}
 
 	/**
@@ -198,67 +199,44 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider, Creden
 		}
 		String nameCodeToUse = phoneNumberUtil.getRegionCodeForCountryCode(countryNumber);
 		PhoneNumber originalPhoneNumberParsed;
-
-		// parse the mobile number and store it as instance of PhoneNumber
 		try {
 			originalPhoneNumberParsed = phoneNumberUtil.parse(mobileNumber, nameCodeToUse);
 		} catch (NumberParseException e) {
-			logger.error("Failed to parse phone number", e);
-			context.getAuthenticationSession().setAuthNote("formatError", "numberFormatFailedToParse");
+			logger.warn("Failed to parse phone number: " + mobileNumber, e);
+			context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberInvalid");
 			return null;
 		}
 
+		// check if the number is valid
 		if (!phoneNumberUtil.isValidNumber(originalPhoneNumberParsed)) {
-			logger.error("Phone number is not valid");
-			context.getAuthenticationSession().setAuthNote("formatError", "numberFormatNumberInvalid");
+			logger.warn("Phone number is not valid: " + mobileNumber);
+			context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberInvalid");
 			return null;
 		}
 
-		// apply ValidNumberType filters
-		// try to extract number types from filter string
-		List<PhoneNumberUtil.PhoneNumberType> numberTypeFilters = new ArrayList<>();
-		String numberFiltersString = null;
-		try {
-			numberFiltersString = config.getConfig().getOrDefault("numberTypeFilters", "");
-			if (!numberFiltersString.isBlank()) {
-				numberFilterSplitter.splitToStream(numberFiltersString).forEach(filterString ->
-					numberTypeFilters.add(PhoneNumberUtil.PhoneNumberType.valueOf(filterString)));
-			}
-		} catch (Exception e) {
-			// if the number type filter configuration is bad, log an error and continue without filtering
-			logger.errorf("Illegal filter found: %s. Filter must be a list of comma delimited Strings of FIXED_LINE, MOBILE, "
-				+ "FIXED_LINE_OR_MOBILE, PAGER, TOLL_FREE, PREMIUM_RATE, SHARED_COST, PERSONAL_NUMBER, VOIP, UAN, VOICEMAIL", numberFiltersString);
-			numberTypeFilters.clear();
+		// check if the number is a mobile number
+		if (!phoneNumberUtil.getNumberType(originalPhoneNumberParsed).equals(PhoneNumberUtil.PhoneNumberType.MOBILE)) {
+			logger.warn("Phone number is not a mobile number: " + mobileNumber);
+			context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberNotMobile");
+			return null;
 		}
 
-		// check to see if the number type matches any of the filters set
-		if (!numberTypeFilters.isEmpty()) {
-			PhoneNumberUtil.PhoneNumberType numberType = phoneNumberUtil.getNumberType(originalPhoneNumberParsed);
-			if (numberTypeFilters.stream().noneMatch(filter -> filter == numberType)) {
-				logger.errorf("Phone number type %s does not match any filters in %s", numberType.toString(), numberTypeFilters);
-				context.getAuthenticationSession().setAuthNote("formatError", "numberFormatNoMatchingFilters");
+		// check if the number is in allowed countries
+		String allowedCountries = config.getConfig().get("allowedCountries");
+		if (allowedCountries != null && !allowedCountries.isBlank()) {
+			List<String> allowedCountriesList = new ArrayList<>();
+			numberFilterSplitter.split(allowedCountries).forEach(allowedCountriesList::add);
+			if (!allowedCountriesList.contains(phoneNumberUtil.getRegionCodeForNumber(originalPhoneNumberParsed))) {
+				logger.warn("Phone number is not in allowed countries: " + mobileNumber);
+				context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberNotAllowed");
 				return null;
 			}
 		}
 
-		// return the E164 format of the mobile number
 		return phoneNumberUtil.format(originalPhoneNumberParsed, PhoneNumberUtil.PhoneNumberFormat.E164);
 	}
 
-	private void handleInvalidNumber(RequiredActionContext context, String formatError) {
-		Response challenge = context
-			.form()
-			.setAttribute("mobileInputFieldPlaceholder", context.getAuthenticationSession().getAuthNote("mobileInputFieldPlaceholder"))
-			.setError(formatError)
-			.createForm("mobile_number_form.ftl");
-		context.challenge(challenge);
-	}
-
 	@Override
-	public void close() {}
-
-	@Override
-	public String getCredentialType(KeycloakSession keycloakSession, AuthenticationSessionModel authenticationSessionModel) {
-		return SmsAuthCredentialModel.TYPE;
+	public void close() {
 	}
 }

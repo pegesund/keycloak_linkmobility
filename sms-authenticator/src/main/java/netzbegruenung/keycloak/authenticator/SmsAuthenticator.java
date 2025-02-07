@@ -22,20 +22,15 @@
 
 package netzbegruenung.keycloak.authenticator;
 
-import netzbegruenung.keycloak.authenticator.credentials.SmsAuthCredentialData;
-import netzbegruenung.keycloak.authenticator.credentials.SmsAuthCredentialModel;
 import netzbegruenung.keycloak.authenticator.gateway.SmsServiceFactory;
 
 import org.jboss.logging.Logger;
-import org.keycloak.authentication.CredentialValidator;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.authentication.RequiredActionFactory;
 import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.common.util.SecretGenerator;
-import org.keycloak.credential.CredentialModel;
-import org.keycloak.credential.CredentialProvider;
 import org.keycloak.models.AuthenticationExecutionModel;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.KeycloakSession;
@@ -43,19 +38,17 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.theme.Theme;
-import org.keycloak.util.JsonSerialization;
 
 import jakarta.ws.rs.core.Response;
 import java.util.Locale;
-import java.util.Optional;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
-public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsAuthCredentialProvider> {
+public class SmsAuthenticator implements Authenticator {
 
 	private static final Logger logger = Logger.getLogger(SmsAuthenticator.class);
 	private static final String TPL_CODE = "login-sms.ftl";
+	private static final String MOBILE_NUMBER_ATTRIBUTE = "mobile_number";
 
 	@Override
 	public void authenticate(AuthenticationFlowContext context) {
@@ -64,12 +57,11 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 		UserModel user = context.getUser();
 		RealmModel realm = context.getRealm();
 
-		Optional<CredentialModel> model = context.getUser().credentialManager().getStoredCredentialsByTypeStream(SmsAuthCredentialModel.TYPE).findFirst();
-		String mobileNumber;
-		try {
-			mobileNumber = JsonSerialization.readValue(model.orElseThrow().getCredentialData(), SmsAuthCredentialData.class).getMobileNumber();
-		} catch (IOException e1) {
-			logger.warn(e1.getMessage(), e1);
+		String mobileNumber = user.getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE);
+		if (mobileNumber == null) {
+			logger.warn("No mobile number found for user: " + user.getUsername());
+			context.failureChallenge(AuthenticationFlowError.INVALID_USER,
+				context.form().setError("smsAuthNoPhone", "No mobile number configured").createErrorPage(Response.Status.BAD_REQUEST));
 			return;
 		}
 
@@ -141,7 +133,7 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 
 	@Override
 	public boolean configuredFor(KeycloakSession session, RealmModel realm, UserModel user) {
-		return getCredentialProvider(session).isConfiguredFor(realm, user, getType(session));
+		return user.getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE) != null;
 	}
 
 	@Override
@@ -155,10 +147,5 @@ public class SmsAuthenticator implements Authenticator, CredentialValidator<SmsA
 
 	@Override
 	public void close() {
-	}
-
-	@Override
-	public SmsAuthCredentialProvider getCredentialProvider(KeycloakSession session) {
-		return (SmsAuthCredentialProvider)session.getProvider(CredentialProvider.class, SmsAuthCredentialProviderFactory.PROVIDER_ID);
 	}
 }

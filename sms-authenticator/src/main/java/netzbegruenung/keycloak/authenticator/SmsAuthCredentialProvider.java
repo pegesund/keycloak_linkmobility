@@ -73,6 +73,16 @@ public class SmsAuthCredentialProvider implements CredentialProvider<SmsAuthCred
         return user.credentialManager().getStoredCredentialsByTypeStream(credentialType).findAny().isPresent();
     }
 
+    public boolean isConfiguredFor(RealmModel realm, UserModel user, String credentialType, String phoneNumber) {
+        if (!supportsCredentialType(credentialType)) return false;
+        try (Stream<CredentialModel> credentials = user.credentialManager().getStoredCredentialsByTypeStream(credentialType)) {
+            return credentials.anyMatch(cred -> {
+                SmsAuthCredentialModel model = getCredentialFromModel(cred);
+                return model.getSmsAuthenticatorData().getMobileNumber().equals(phoneNumber);
+            });
+        }
+    }
+
     @Override
     public CredentialModel createCredential(RealmModel realm, UserModel user, SmsAuthCredentialModel credentialModel) {
         credentialModel.setCreatedDate(Time.currentTimeMillis());
