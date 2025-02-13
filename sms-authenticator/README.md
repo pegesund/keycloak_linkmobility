@@ -42,3 +42,27 @@ account console `/realms/realm/account/#/account-security/signing-in` by enterin
 # Enforce SMS 2FA
 If the option `Force 2FA` in the SMS Authenticator config is enabled and a user has no other 2FA method already enabled,
 users will have to set up the SMS Authenticator.
+
+# Sms-ony authentication
+
+Attribute is store in user attribute `phone_number`
+
+It must be connected to a client:
+
+Client config:
+
+Client name: "smsonly"
+Valid redirect uris: "http://localhost:8080/*"
+Web origins: "http://localhost:8080"
+Client authentication "On"
+Authentication flow "Standard flow" and "Direct access grant"
+
+Authentication element:
+
+Only one step: "Sms Authentication, sms-only-authenticator" (alternative)
+Alias name: "sms-only-authenticator"
+Apply to client "smsonly" above
+
+Url to reach the authenticator: "http://localhost:8080/realms/prealm2/protocol/openid-connect/auth?client_id=smsonly&response_type=code&scope=openid&redirect_uri=http://localhost:8080/realms/prealm2/account"
+
+
