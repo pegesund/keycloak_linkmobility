@@ -14,8 +14,7 @@ import java.util.ArrayList;
 public class SmsOnlyAuthenticatorFactory implements AuthenticatorFactory {
 
     public static final String PROVIDER_ID = "sms-only-authenticator";
-    private static final String DISPLAY_TYPE = "SMS Only Authentication";
-    private static final String REFERENCE_CATEGORY = "sms-auth-code";
+    private static final String DISPLAY_TYPE = "SMS Authentication";
     private static final String HELP_TEXT = "Authenticates using SMS code only, no password required";
     
     private static final List<ProviderConfigProperty> configProperties = new ArrayList<>();
@@ -58,33 +57,11 @@ public class SmsOnlyAuthenticatorFactory implements AuthenticatorFactory {
         configProperties.add(platformPartnerId);
     }
 
+    private static final SmsOnlyAuthenticator SINGLETON = new SmsOnlyAuthenticator();
+
     @Override
     public String getId() {
         return PROVIDER_ID;
-    }
-
-    @Override
-    public String getDisplayType() {
-        return DISPLAY_TYPE;
-    }
-
-    @Override
-    public String getReferenceCategory() {
-        return REFERENCE_CATEGORY;
-    }
-
-    @Override
-    public boolean isConfigurable() {
-        return true;
-    }
-
-    @Override
-    public AuthenticationExecutionModel.Requirement[] getRequirementChoices() {
-        return new AuthenticationExecutionModel.Requirement[] {
-                AuthenticationExecutionModel.Requirement.REQUIRED,
-                AuthenticationExecutionModel.Requirement.ALTERNATIVE,
-                AuthenticationExecutionModel.Requirement.DISABLED
-        };
     }
 
     @Override
@@ -93,32 +70,53 @@ public class SmsOnlyAuthenticatorFactory implements AuthenticatorFactory {
     }
 
     @Override
+    public String getReferenceCategory() {
+        return "auth-sms-authentication-form";  // Must match PROVIDER_ID of SmsAuthenticationFormFactory
+    }
+
+    @Override
+    public String getDisplayType() {
+        return DISPLAY_TYPE;
+    }
+
+    @Override
     public String getHelpText() {
         return HELP_TEXT;
     }
 
     @Override
-    public List<ProviderConfigProperty> getConfigProperties() {
-        return configProperties;
+    public AuthenticationExecutionModel.Requirement[] getRequirementChoices() {
+        return new AuthenticationExecutionModel.Requirement[] {
+            AuthenticationExecutionModel.Requirement.REQUIRED,
+            AuthenticationExecutionModel.Requirement.ALTERNATIVE,
+            AuthenticationExecutionModel.Requirement.DISABLED
+        };
+    }
+
+    @Override
+    public boolean isConfigurable() {
+        return true;
     }
 
     @Override
     public Authenticator create(KeycloakSession session) {
-        return new SmsOnlyAuthenticator();
+        return SINGLETON;
     }
 
     @Override
     public void init(Config.Scope config) {
-        // No initialization needed
     }
 
     @Override
     public void postInit(KeycloakSessionFactory factory) {
-        // No post-initialization needed
     }
 
     @Override
     public void close() {
-        // No resources to close
+    }
+
+    @Override
+    public List<ProviderConfigProperty> getConfigProperties() {
+        return configProperties;
     }
 }

@@ -1,2 +1,3 @@
 netzbegruenung.keycloak.authenticator.SmsAuthenticatorFactory
 netzbegruenung.keycloak.authenticator.smsonly.SmsOnlyAuthenticatorFactory
+netzbegruenung.keycloak.authenticator.SmsAuthenticationFormFactory

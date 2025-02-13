@@ -27,6 +27,10 @@ public class SmsOnlyAuthenticator implements Authenticator {
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
+        // Set realm and client context
+        context.getAuthenticationSession().setAuthNote("REALM_ID", context.getRealm().getId());
+        context.getAuthenticationSession().setAuthNote("CLIENT_ID", context.getAuthenticationSession().getClient().getClientId());
+        
         // Show phone number input form first
         Response challenge = context.form()
                 .createForm(TPL_PHONE);
@@ -89,6 +93,17 @@ public class SmsOnlyAuthenticator implements Authenticator {
             String expectedCode = context.getAuthenticationSession().getAuthNote("sms-code");
             
             if (enteredCode.equals(expectedCode)) {
+                // Set the user in the authentication session
+                context.getAuthenticationSession().setAuthenticatedUser(context.getUser());
+                
+                // Set authentication method
+                String authenticationMethod = "sms";
+                context.getAuthenticationSession().setAuthNote("auth_method", authenticationMethod);
+                
+                // Set the authentication session state
+                context.getAuthenticationSession().setAuthNote("AUTHENTICATION_COMPLETE", "true");
+                
+                // Complete authentication
                 context.success();
             } else {
                 context.failureChallenge(
@@ -116,7 +131,7 @@ public class SmsOnlyAuthenticator implements Authenticator {
 
     @Override
     public boolean requiresUser() {
-        return false;  // Changed to false since we find the user by phone number
+        return false;  // We find the user by phone number, so no pre-existing user session is required
     }
 
     @Override
