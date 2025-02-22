@@ -15,12 +15,11 @@
  * limitations under the License.
  *
  * @author <a href="mailto:bill@burkecentral.com">Bill Burke</a>
- * @author Niko Köbler, https://www.n-k.de, @dasniko
  * @author Netzbegruenung e.V.
  * @author verdigado eG
  */
 
-package netzbegruenung.keycloak.authenticator;
+package netzbegruenung.keycloak.authenticator.twofactor;
 
 import org.keycloak.Config;
 import org.keycloak.authentication.RequiredActionFactory;
@@ -28,24 +27,27 @@ import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
 
-public class PhoneValidationRequiredActionFactory implements RequiredActionFactory {
+/**
+ * @author <a href="mailto:bill@burkecentral.com">Bill Burke</a>
+ * @version $Revision: 1 $
+ */
+public class PhoneNumberRequiredActionFactory implements RequiredActionFactory {
 
-    private static final PhoneValidationRequiredAction SINGLETON = new PhoneValidationRequiredAction();
+    private static final PhoneNumberRequiredAction SINGLETON = new PhoneNumberRequiredAction();
 
     @Override
     public RequiredActionProvider create(KeycloakSession session) {
         return SINGLETON;
     }
 
-
     @Override
     public String getId() {
-        return PhoneValidationRequiredAction.PROVIDER_ID;
+        return PhoneNumberRequiredAction.PROVIDER_ID;
     }
 
     @Override
     public String getDisplayText() {
-        return "Phone Validation";
+        return "Update Mobile Number";
     }
 
     @Override

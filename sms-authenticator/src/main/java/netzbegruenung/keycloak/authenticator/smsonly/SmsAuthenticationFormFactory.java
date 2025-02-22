@@ -1,4 +1,4 @@
-package netzbegruenung.keycloak.authenticator;
+package netzbegruenung.keycloak.authenticator.smsonly;
 
 import org.keycloak.Config;
 import org.keycloak.authentication.Authenticator;

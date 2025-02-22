@@ -20,7 +20,7 @@
  * @author Niko Köbler, https://www.n-k.de, @dasniko
  */
 
-package netzbegruenung.keycloak.authenticator;
+package netzbegruenung.keycloak.authenticator.smsonly;
 
 import org.keycloak.Config;
 import org.keycloak.authentication.Authenticator;

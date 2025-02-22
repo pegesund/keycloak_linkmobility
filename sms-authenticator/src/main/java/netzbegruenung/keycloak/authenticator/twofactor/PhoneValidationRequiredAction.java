@@ -20,7 +20,7 @@
  * @author verdigado eG
  */
 
-package netzbegruenung.keycloak.authenticator;
+package netzbegruenung.keycloak.authenticator.twofactor;
 
 import netzbegruenung.keycloak.authenticator.gateway.SmsServiceFactory;
 

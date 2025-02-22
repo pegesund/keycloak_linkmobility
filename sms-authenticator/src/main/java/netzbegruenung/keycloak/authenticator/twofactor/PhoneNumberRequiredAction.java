@@ -19,7 +19,7 @@
  * @author verdigado eG
  */
 
-package netzbegruenung.keycloak.authenticator;
+package netzbegruenung.keycloak.authenticator.twofactor;
 
 import com.google.common.base.Splitter;
 import com.google.i18n.phonenumbers.NumberParseException;

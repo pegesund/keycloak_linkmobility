@@ -20,9 +20,11 @@
  * @author verdigado eG
  */
 
-package netzbegruenung.keycloak.authenticator;
+package netzbegruenung.keycloak.authenticator.smsonly;
 
 import netzbegruenung.keycloak.authenticator.gateway.SmsServiceFactory;
+import netzbegruenung.keycloak.authenticator.twofactor.PhoneNumberRequiredAction;
+import netzbegruenung.keycloak.authenticator.twofactor.PhoneNumberRequiredActionFactory;
 
 import org.jboss.logging.Logger;
 import org.keycloak.authentication.AuthenticationFlowContext;
