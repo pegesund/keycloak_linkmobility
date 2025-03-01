@@ -98,7 +98,7 @@ public class SmsAuthenticatorFactory implements AuthenticatorFactory {
 
 	@Override
 	public String getDisplayType() {
-		return "SMS Authentication (2FA)";
+		return "SMS Authentication";
 	}
 
 	@Override

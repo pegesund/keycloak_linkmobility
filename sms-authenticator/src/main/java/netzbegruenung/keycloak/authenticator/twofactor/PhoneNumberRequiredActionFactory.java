@@ -42,27 +42,24 @@ public class PhoneNumberRequiredActionFactory implements RequiredActionFactory {
 
     @Override
     public String getId() {
-        return PhoneNumberRequiredAction.PROVIDER_ID;
+        return PhoneNumberRequiredAction.PROVIDER_ID;  // Use the same ID
     }
 
     @Override
     public String getDisplayText() {
-        return "Update Mobile Number";
+        return "Configure SMS Authentication";
     }
 
     @Override
     public void init(Config.Scope config) {
-
     }
 
     @Override
     public void postInit(KeycloakSessionFactory factory) {
-
     }
 
     @Override
     public void close() {
-
     }
 
 }

@@ -31,6 +31,7 @@ import org.keycloak.authentication.InitiatedActionSupport;
 import org.keycloak.authentication.RequiredActionContext;
 import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.authentication.requiredactions.WebAuthnRegisterFactory;
+import org.keycloak.models.AuthenticationExecutionModel;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserModel;
@@ -58,58 +59,34 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider {
 
 	@Override
 	public void evaluateTriggers(RequiredActionContext context) {
-		// TODO: get the alias from somewhere else or move config into realm or application scope
-		AuthenticatorConfigModel config = context.getRealm().getAuthenticatorConfigByAlias("sms-2fa");
-		if (config == null) {
-			logger.error("Failed to check 2FA enforcement, no config alias sms-2fa found");
+		// Check if the user already has a mobile number
+		String mobileNumber = context.getUser().getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE);
+		if (mobileNumber != null && !mobileNumber.trim().isEmpty()) {
 			return;
 		}
-		boolean forceSecondFactorEnabled = Boolean.parseBoolean(config.getConfig().get("forceSecondFactor"));
-		if (forceSecondFactorEnabled) {
-			if (config.getConfig().get("whitelist") != null) {
-				RoleModel whitelistRole = context.getRealm().getRole(config.getConfig().get("whitelist"));
-				if (whitelistRole == null) {
-					logger.errorf(
-						"Failed configured whitelist role check [%s], make sure that the role exists",
-						config.getConfig().get("whitelist")
-					);
-				} else if (context.getUser().hasRole(whitelistRole)) {
-					// skip enforcement if user is whitelisted
-					return;
-				}
-			}
-			// add auth note for phone number input placeholder
-			context.getAuthenticationSession().setAuthNote("mobileInputFieldPlaceholder",
-				config.getConfig().getOrDefault("mobileInputFieldPlaceholder", ""));
 
-			// Check if user has mobile number attribute
-			if (context.getUser().getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE) != null) {
-				// skip as mobile number is already set
-				return;
-			}
+		// Check if the required action is already set
+		Set<String> availableRequiredActions = Set.of(
+			PhoneNumberRequiredAction.PROVIDER_ID,
+			PhoneValidationRequiredAction.PROVIDER_ID,
+			UserModel.RequiredAction.CONFIGURE_TOTP.name(),
+			WebAuthnRegisterFactory.PROVIDER_ID,
+			UserModel.RequiredAction.UPDATE_PASSWORD.name()
+		);
+		Set<String> authSessionRequiredActions = context.getAuthenticationSession().getRequiredActions();
+		authSessionRequiredActions.retainAll(availableRequiredActions);
+		if (!authSessionRequiredActions.isEmpty()) {
+			// skip as relevant required action is already set
+			return;
+		}
 
-			Set<String> availableRequiredActions = Set.of(
-				PhoneNumberRequiredAction.PROVIDER_ID,
-				PhoneValidationRequiredAction.PROVIDER_ID,
-				UserModel.RequiredAction.CONFIGURE_TOTP.name(),
-				WebAuthnRegisterFactory.PROVIDER_ID,
-				UserModel.RequiredAction.UPDATE_PASSWORD.name()
+		Stream<String> usersRequiredActions = context.getUser().getRequiredActionsStream();
+		if (usersRequiredActions.noneMatch(availableRequiredActions::contains)) {
+			logger.infof(
+				"No mobile number configured for user: %s, setting required action for SMS authenticator",
+				context.getUser().getUsername()
 			);
-			Set<String> authSessionRequiredActions = context.getAuthenticationSession().getRequiredActions();
-			authSessionRequiredActions.retainAll(availableRequiredActions);
-			if (!authSessionRequiredActions.isEmpty()) {
-				// skip as relevant required action is already set
-				return;
-			}
-
-			Stream<String> usersRequiredActions = context.getUser().getRequiredActionsStream();
-			if (usersRequiredActions.noneMatch(availableRequiredActions::contains)) {
-				logger.infof(
-					"No mobile number configured for user: %s, setting required action for SMS authenticator",
-					context.getUser().getUsername()
-				);
-				context.getUser().addRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
-			}
+			context.getUser().addRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
 		}
 	}
 
@@ -126,44 +103,30 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider {
 		String mobileNumber = nonDigitPattern.matcher(context.getHttpRequest().getDecodedFormParameters().getFirst("mobile_number")).replaceAll("");
 		AuthenticationSessionModel authSession = context.getAuthenticationSession();
 
-		// get the phone number formatting values from the config
-		AuthenticatorConfigModel config = context.getRealm().getAuthenticatorConfigByAlias("sms-2fa");
-		boolean normalizeNumber = false;
-		boolean forceRetryOnBadFormat = false;
-		if (config != null && config.getConfig() != null) {
-			normalizeNumber = Boolean.parseBoolean(config.getConfig().getOrDefault("normalizePhoneNumber", "false"));
-			forceRetryOnBadFormat = Boolean.parseBoolean(config.getConfig().getOrDefault("forceRetryOnBadFormat", "false"));
-		}
-
-		// try to format the phone number
-		if (normalizeNumber) {
+		try {
+			// Format the phone number if needed
 			String formattedNumber = formatPhoneNumber(context, mobileNumber);
 			if (formattedNumber != null && !formattedNumber.isBlank()) {
 				mobileNumber = formattedNumber;
-			} else if (forceRetryOnBadFormat) {
-				logger.errorf("Failed phone number formatting checks for: %s", mobileNumber);
-				String formatError = context.getAuthenticationSession().getAuthNote("formatError");
-				if (formatError != null && !formatError.isBlank()) {
-					handleInvalidNumber(context, formatError);
-					return;
-				}
 			}
+
+			// Store mobile number temporarily in auth session
+			authSession.setAuthNote("mobile_number", mobileNumber);
+			logger.infof("Adding required action for phone validation: [%s], user: %s", mobileNumber, context.getUser().getUsername());
+			
+			// Add validation required action and remove this one
+			context.getUser().addRequiredAction(PhoneValidationRequiredAction.PROVIDER_ID);
+			context.getUser().removeRequiredAction(PROVIDER_ID);
+			context.success();
+		} catch (Exception e) {
+			logger.error("Failed to process mobile number", e);
+			handleInvalidNumber(context, "smsAuthInvalidNumber");
 		}
-
-		// Store mobile number as user attribute
-		context.getUser().setSingleAttribute(MOBILE_NUMBER_ATTRIBUTE, mobileNumber);
-		logger.infof("Stored mobile number [%s] for user: %s", mobileNumber, context.getUser().getUsername());
-
-		authSession.setAuthNote("mobile_number", mobileNumber);
-		logger.infof("Add required action for phone validation: [%s], user: %s", mobileNumber, context.getUser().getUsername());
-		context.getAuthenticationSession().addRequiredAction(PhoneValidationRequiredAction.PROVIDER_ID);
-		context.success();
 	}
 
 	private void handleInvalidNumber(RequiredActionContext context, String error) {
 		Response challenge = context.form()
 			.setError(error)
-			.setAttribute("mobileInputFieldPlaceholder", context.getAuthenticationSession().getAuthNote("mobileInputFieldPlaceholder"))
 			.createForm("mobile_number_form.ftl");
 		context.challenge(challenge);
 	}
@@ -173,62 +136,23 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider {
 	 *
 	 * @param context		the current RequiredActionContext
 	 * @param mobileNumber	the mobile phone number to be formatted
-	 * @return				the formatted mobile phone number, null if the phone number is invalid or mobileNumber if the config was not found
+	 * @return				the formatted mobile phone number, null if the phone number is invalid
 	 */
 	private String formatPhoneNumber(RequiredActionContext context, String mobileNumber) {
-		AuthenticatorConfigModel config = context.getRealm().getAuthenticatorConfigByAlias("sms-2fa");
-		if (config == null || config.getConfig() == null) {
-			logger.error("Failed format phone number, no config alias sms-2fa found");
-			return mobileNumber;
-		}
 		final PhoneNumberUtil phoneNumberUtil = PhoneNumberUtil.getInstance();
-		int countryNumber;
-		// try to get the country code from the country number in the config, fallback on default DE
+		String countryCode = "+49"; // Default to Germany
+
 		try {
-			countryNumber = Integer.parseInt(whitespacePattern.matcher(config.getConfig()
-				.getOrDefault("countrycode", "49").replace("+", ""))
-				.replaceAll(""));
-		} catch (NumberFormatException e) {
-			logger.warn("Failed to parse countrycode to int, using default value (49)", e);
-			countryNumber = 49;
-		}
-		String nameCodeToUse = phoneNumberUtil.getRegionCodeForCountryCode(countryNumber);
-		PhoneNumber originalPhoneNumberParsed;
-		try {
-			originalPhoneNumberParsed = phoneNumberUtil.parse(mobileNumber, nameCodeToUse);
-		} catch (NumberParseException e) {
-			logger.warn("Failed to parse phone number: " + mobileNumber, e);
-			context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberInvalid");
-			return null;
-		}
-
-		// check if the number is valid
-		if (!phoneNumberUtil.isValidNumber(originalPhoneNumberParsed)) {
-			logger.warn("Phone number is not valid: " + mobileNumber);
-			context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberInvalid");
-			return null;
-		}
-
-		// check if the number is a mobile number
-		if (!phoneNumberUtil.getNumberType(originalPhoneNumberParsed).equals(PhoneNumberUtil.PhoneNumberType.MOBILE)) {
-			logger.warn("Phone number is not a mobile number: " + mobileNumber);
-			context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberNotMobile");
-			return null;
-		}
-
-		// check if the number is in allowed countries
-		String allowedCountries = config.getConfig().get("allowedCountries");
-		if (allowedCountries != null && !allowedCountries.isBlank()) {
-			List<String> allowedCountriesList = new ArrayList<>();
-			numberFilterSplitter.split(allowedCountries).forEach(allowedCountriesList::add);
-			if (!allowedCountriesList.contains(phoneNumberUtil.getRegionCodeForNumber(originalPhoneNumberParsed))) {
-				logger.warn("Phone number is not in allowed countries: " + mobileNumber);
-				context.getAuthenticationSession().setAuthNote("formatError", "smsAuthPhoneNumberNotAllowed");
+			PhoneNumber parsedNumber = phoneNumberUtil.parse(mobileNumber, "DE");
+			if (!phoneNumberUtil.isValidNumber(parsedNumber)) {
+				logger.warn("Invalid phone number format: " + mobileNumber);
 				return null;
 			}
+			return phoneNumberUtil.format(parsedNumber, PhoneNumberUtil.PhoneNumberFormat.E164);
+		} catch (NumberParseException e) {
+			logger.warn("Failed to parse phone number: " + mobileNumber, e);
+			return null;
 		}
-
-		return phoneNumberUtil.format(originalPhoneNumberParsed, PhoneNumberUtil.PhoneNumberFormat.E164);
 	}
 
 	@Override

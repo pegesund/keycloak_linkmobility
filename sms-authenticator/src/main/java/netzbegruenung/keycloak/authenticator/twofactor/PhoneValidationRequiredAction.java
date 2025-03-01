@@ -35,7 +35,9 @@ import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.theme.Theme;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import jakarta.ws.rs.core.Response;
 
 public class PhoneValidationRequiredAction implements RequiredActionProvider {
@@ -49,20 +51,22 @@ public class PhoneValidationRequiredAction implements RequiredActionProvider {
 
 	@Override
 	public void requiredActionChallenge(RequiredActionContext context) {
-		context.getUser().addRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
 		try {
 			UserModel user = context.getUser();
 			RealmModel realm = context.getRealm();
 
 			AuthenticationSessionModel authSession = context.getAuthenticationSession();
-			// TODO: get the alias from somewhere else or move config into realm or application scope
-			AuthenticatorConfigModel config = context.getRealm().getAuthenticatorConfigByAlias("sms-2fa");
-
 			String mobileNumber = authSession.getAuthNote("mobile_number");
+			if (mobileNumber == null) {
+				logger.error("No mobile number found in auth session");
+				context.failure();
+				return;
+			}
 			logger.infof("Validating phone number: %s of user: %s", mobileNumber, user.getUsername());
 
-			int length = Integer.parseInt(config.getConfig().get("length"));
-			int ttl = Integer.parseInt(config.getConfig().get("ttl"));
+			// Use default values for SMS code
+			int length = 6;
+			int ttl = 300;
 
 			String code = SecretGenerator.getInstance().randomString(length, SecretGenerator.DIGITS);
 			authSession.setAuthNote("code", code);
@@ -73,14 +77,17 @@ public class PhoneValidationRequiredAction implements RequiredActionProvider {
 			String smsAuthText = theme.getEnhancedMessages(realm,locale).getProperty("smsAuthText");
 			String smsText = String.format(smsAuthText, code, Math.floorDiv(ttl, 60));
 
-			SmsServiceFactory.get(config.getConfig()).send(mobileNumber, smsText);
+			// Use simulation mode for SMS
+			Map<String, String> config = new HashMap<>();
+			config.put("simulation", "true");
+			SmsServiceFactory.get(config).send(mobileNumber, smsText);
 
 			Response challenge = context.form()
 				.setAttribute("realm", realm)
 				.createForm("login-sms.ftl");
 			context.challenge(challenge);
 		} catch (Exception e) {
-			logger.error(e.getMessage(), e);
+			logger.error("Failed to send SMS", e);
 			context.failure();
 		}
 	}
@@ -101,17 +108,29 @@ public class PhoneValidationRequiredAction implements RequiredActionProvider {
 		}
 
 		boolean isValid = enteredCode.equals(code);
-		if (isValid && Long.parseLong(ttl) > System.currentTimeMillis()) {
-			// valid - store the mobile number as an attribute
-			context.getUser().setSingleAttribute(MOBILE_NUMBER_ATTRIBUTE, mobileNumber);
-			logger.infof("Successfully validated and stored mobile number [%s] for user: %s", 
-				mobileNumber, context.getUser().getUsername());
-			
-			// Remove the required actions since validation is complete
-			context.getUser().removeRequiredAction(PhoneNumberRequiredAction.PROVIDER_ID);
-			context.success();
+		long expirationTime = Long.parseLong(ttl);
+		if (isValid) {
+			if (System.currentTimeMillis() > expirationTime) {
+				// Code has expired
+				logger.warn("Code expired. Expiration: " + expirationTime + ", Current: " + System.currentTimeMillis());
+				Response challenge = context
+					.form()
+					.setAttribute("realm", context.getRealm())
+					.setError("smsAuthCodeExpired")
+					.createForm("login-sms.ftl");
+				context.challenge(challenge);
+			} else {
+				// valid - store the mobile number as an attribute
+				context.getUser().setSingleAttribute(MOBILE_NUMBER_ATTRIBUTE, mobileNumber);
+				logger.infof("Successfully validated and stored mobile number [%s] for user: %s", 
+					mobileNumber, context.getUser().getUsername());
+				
+				// Remove the required actions since validation is complete
+				context.getUser().removeRequiredAction(PROVIDER_ID);
+				context.success();
+			}
 		} else {
-			// invalid or expired
+			// invalid code
 			handleInvalidSmsCode(context);
 		}
 	}
