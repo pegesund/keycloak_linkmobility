@@ -46,7 +46,7 @@ public class TwoFactorAuthenticator implements Authenticator {
             return;
         }
 
-        // Send SMS code
+        // Always send SMS code for 2FA
         try {
             int length = Integer.parseInt(config.getConfig().getOrDefault("length", "6"));
             int ttl = Integer.parseInt(config.getConfig().getOrDefault("ttl", "300"));
@@ -58,21 +58,20 @@ public class TwoFactorAuthenticator implements Authenticator {
 
             Theme theme = context.getSession().theme().getTheme(Theme.Type.LOGIN);
             Locale locale = context.getSession().getContext().resolveLocale(user);
-            String smsAuthText = theme.getEnhancedMessages(context.getRealm(), locale).getProperty("smsAuthText");
-            String smsText = String.format(smsAuthText, code, Math.floorDiv(ttl, 60));
+            String smsAuthText = theme.getEnhancedMessages(context.getRealm(), locale).getProperty("smsAuthText", "Your SMS code is: %1$s");
+            String smsText = String.format(smsAuthText, code);
 
-            // Use simulation mode for SMS
-            Map<String, String> smsConfig = new HashMap<>(config.getConfig());
-            smsConfig.put("simulation", "true");
-            SmsServiceFactory.get(smsConfig).send(mobileNumber, smsText);
-            
-            context.challenge(context.form()
+            SmsServiceFactory.get(config.getConfig()).send(mobileNumber, smsText);
+
+            Response challenge = context.form()
                 .setAttribute("realm", context.getRealm())
-                .createForm(TPL_CODE));
+                .setAttribute("mobile_number", mobileNumber)
+                .createForm(TPL_CODE);
+            context.challenge(challenge);
         } catch (Exception e) {
             logger.error("Failed to send SMS", e);
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
-                context.form().setError("smsAuthSmsNotSent").createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
+                context.form().setError("smsAuthSmsError").createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
         }
     }
 
