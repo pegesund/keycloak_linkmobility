@@ -15,8 +15,6 @@ import org.keycloak.theme.Theme;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.HashMap;
 
 public class TwoFactorAuthenticator implements Authenticator {
     private static final Logger logger = Logger.getLogger(TwoFactorAuthenticator.class);
@@ -58,8 +56,8 @@ public class TwoFactorAuthenticator implements Authenticator {
 
             Theme theme = context.getSession().theme().getTheme(Theme.Type.LOGIN);
             Locale locale = context.getSession().getContext().resolveLocale(user);
-            String smsAuthText = theme.getEnhancedMessages(context.getRealm(), locale).getProperty("smsAuthText", "Your SMS code is: %1$s");
-            String smsText = String.format(smsAuthText, code);
+            String smsAuthText = theme.getEnhancedMessages(context.getRealm(), locale).getProperty("smsAuthText", "Your SMS code is %1$s and is valid for %2$d minutes.");
+            String smsText = String.format(smsAuthText, code, ttl/60);
 
             SmsServiceFactory.get(config.getConfig()).send(mobileNumber, smsText);
 
@@ -77,46 +75,53 @@ public class TwoFactorAuthenticator implements Authenticator {
 
     @Override
     public void action(AuthenticationFlowContext context) {
+        String enteredCode = context.getHttpRequest().getDecodedFormParameters().getFirst("code");
+        
+        if (enteredCode == null || enteredCode.isEmpty()) {
+            Response challenge = context.form()
+                .setError("missingCode")
+                .createForm(TPL_CODE);
+            context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, challenge);
+            return;
+        }
+
         AuthenticationSessionModel authSession = context.getAuthenticationSession();
         String code = authSession.getAuthNote("code");
         String ttl = authSession.getAuthNote("ttl");
 
         if (code == null || ttl == null) {
-            logger.error("No code or TTL found in auth session");
-            context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
-                context.form().setError("smsAuthInternalError").createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
+            Response challenge = context.form()
+                .setError("codeExpired")
+                .createForm(TPL_CODE);
+            context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE, challenge);
             return;
         }
 
-        String enteredCode = context.getHttpRequest().getDecodedFormParameters().getFirst("code");
-        if (enteredCode == null || enteredCode.trim().isEmpty()) {
-            logger.warn("No code entered by user");
-            context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
-                context.form().setAttribute("realm", context.getRealm())
-                    .setError("smsAuthCodeMissing").createForm(TPL_CODE));
+        boolean valid = enteredCode.equals(code);
+        long expirationTime = Long.parseLong(ttl);
+        boolean expired = System.currentTimeMillis() > expirationTime;
+
+        if (expired) {
+            Response challenge = context.form()
+                .setError("codeExpired")
+                .createForm(TPL_CODE);
+            context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE, challenge);
             return;
         }
 
-        boolean isValid = enteredCode.equals(code);
-        if (isValid) {
-            long expirationTime = Long.parseLong(ttl);
-            if (System.currentTimeMillis() > expirationTime) {
-                logger.warn("Code expired");
-                context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE,
-                    context.form().setError("smsAuthCodeExpired").createForm(TPL_CODE));
-            } else {
-                context.success();
-            }
-        } else {
-            AuthenticationExecutionModel execution = context.getExecution();
-            if (execution.isRequired()) {
-                context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
-                    context.form().setAttribute("realm", context.getRealm())
-                        .setError("smsAuthCodeInvalid").createForm(TPL_CODE));
-            } else if (execution.isConditional() || execution.isAlternative()) {
-                context.attempted();
-            }
+        if (!valid) {
+            Response challenge = context.form()
+                .setError("invalidCode")
+                .createForm(TPL_CODE);
+            context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, challenge);
+            return;
         }
+
+        // Clear the code from the session
+        authSession.removeAuthNote("code");
+        authSession.removeAuthNote("ttl");
+
+        context.success();
     }
 
     @Override
@@ -126,8 +131,8 @@ public class TwoFactorAuthenticator implements Authenticator {
 
     @Override
     public boolean configuredFor(KeycloakSession session, RealmModel realm, UserModel user) {
-        // Always return false so that we can handle the setup flow
-        return false;
+        String mobileNumber = user.getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE);
+        return mobileNumber != null && !mobileNumber.trim().isEmpty();
     }
 
     @Override
