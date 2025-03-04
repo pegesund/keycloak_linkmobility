@@ -15,20 +15,35 @@ import org.keycloak.theme.Theme;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class TwoFactorAuthenticator implements Authenticator {
     private static final Logger logger = Logger.getLogger(TwoFactorAuthenticator.class);
     private static final String TPL_CODE = "login-sms.ftl";
     private static final String MOBILE_NUMBER_ATTRIBUTE = "mobile_number";
+    private static final String MOBILE_NUMBER_FIELD = "mobile_number";
+    private Map<String, String> config;
+
+    public TwoFactorAuthenticator(Map<String, String> config) {
+        this.config = config;
+    }
+
+    public TwoFactorAuthenticator() {
+        // Default constructor for service loading
+    }
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
-        AuthenticatorConfigModel config = context.getAuthenticatorConfig();
-        if (config == null || config.getConfig() == null) {
+        AuthenticatorConfigModel authConfig = context.getAuthenticatorConfig();
+        if (authConfig == null || authConfig.getConfig() == null) {
             logger.error("SMS authenticator config not found");
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
                 context.form().setError("smsAuthConfigError").createErrorPage(Response.Status.INTERNAL_SERVER_ERROR));
             return;
+        }
+
+        if (config == null) {
+            config = authConfig.getConfig();
         }
 
         UserModel user = context.getUser();
@@ -46,8 +61,8 @@ public class TwoFactorAuthenticator implements Authenticator {
 
         // Always send SMS code for 2FA
         try {
-            int length = Integer.parseInt(config.getConfig().getOrDefault("length", "6"));
-            int ttl = Integer.parseInt(config.getConfig().getOrDefault("ttl", "300"));
+            int length = Integer.parseInt(config.getOrDefault("length", "6"));
+            int ttl = Integer.parseInt(config.getOrDefault("ttl", "300"));
 
             String code = SecretGenerator.getInstance().randomString(length, SecretGenerator.DIGITS);
             AuthenticationSessionModel authSession = context.getAuthenticationSession();
@@ -59,7 +74,7 @@ public class TwoFactorAuthenticator implements Authenticator {
             String smsAuthText = theme.getEnhancedMessages(context.getRealm(), locale).getProperty("smsAuthText", "Your SMS code is %1$s and is valid for %2$d minutes.");
             String smsText = String.format(smsAuthText, code, ttl/60);
 
-            SmsServiceFactory.get(config.getConfig()).send(mobileNumber, smsText);
+            SmsServiceFactory.get(config).send(mobileNumber, smsText);
 
             Response challenge = context.form()
                 .setAttribute("realm", context.getRealm())
