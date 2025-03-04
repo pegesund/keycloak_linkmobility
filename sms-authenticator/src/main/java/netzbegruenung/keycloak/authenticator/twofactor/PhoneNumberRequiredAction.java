@@ -44,7 +44,18 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider {
 
 	@Override
 	public void evaluateTriggers(RequiredActionContext context) {
+		// Don't add required action if we're in an authentication flow
+		AuthenticationSessionModel authSession = context.getAuthenticationSession();
+		if (authSession.getAuthNote("LOGIN_ATTEMPT") != null || 
+		    authSession.getAuthNote("SELECTED_AUTH_METHOD") != null) {
+			logger.infof("Skipping required action during authentication flow for user %s", 
+				context.getUser().getUsername());
+			return;
+		}
+		
 		if (context.getUser().getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE) == null) {
+			logger.infof("Adding required action for user %s - missing mobile number", 
+				context.getUser().getUsername());
 			context.getUser().addRequiredAction(PROVIDER_ID);
 		}
 	}
