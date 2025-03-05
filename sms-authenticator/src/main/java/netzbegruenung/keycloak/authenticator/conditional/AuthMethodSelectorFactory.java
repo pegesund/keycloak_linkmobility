@@ -100,7 +100,7 @@ public class AuthMethodSelectorFactory implements AuthenticatorFactory {
         sender.setHelpText("Name that will appear as the SMS sender");
         sender.setDefaultValue("LINK TEST");
         properties.add(sender);
-        
+
         // Platform Partner ID
         ProviderConfigProperty platformPartnerId = new ProviderConfigProperty();
         platformPartnerId.setName("platformPartnerId");
@@ -108,6 +108,51 @@ public class AuthMethodSelectorFactory implements AuthenticatorFactory {
         platformPartnerId.setType(ProviderConfigProperty.STRING_TYPE);
         platformPartnerId.setHelpText("Platform Partner ID for the SMS gateway");
         properties.add(platformPartnerId);
+
+        // Code length
+        ProviderConfigProperty length = new ProviderConfigProperty();
+        length.setName("length");
+        length.setLabel("Code length");
+        length.setType(ProviderConfigProperty.STRING_TYPE);
+        length.setHelpText("The number of digits of the generated code");
+        length.setDefaultValue("6");
+        properties.add(length);
+
+        // TTL
+        ProviderConfigProperty ttl = new ProviderConfigProperty();
+        ttl.setName("ttl");
+        ttl.setLabel("Time-to-live");
+        ttl.setType(ProviderConfigProperty.STRING_TYPE);
+        ttl.setHelpText("The time to live in seconds for the code to be valid");
+        ttl.setDefaultValue("300");
+        properties.add(ttl);
+
+        // Simulation mode
+        ProviderConfigProperty simulation = new ProviderConfigProperty();
+        simulation.setName("simulation");
+        simulation.setLabel("Simulation mode");
+        simulation.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        simulation.setHelpText("In simulation mode, the SMS won't be sent, but printed to the server logs");
+        simulation.setDefaultValue(true);
+        properties.add(simulation);
+
+        // Format phone number
+        ProviderConfigProperty normalizePhoneNumber = new ProviderConfigProperty();
+        normalizePhoneNumber.setName("normalizePhoneNumber");
+        normalizePhoneNumber.setLabel("Format phone number");
+        normalizePhoneNumber.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        normalizePhoneNumber.setHelpText("Normalize the phone number using the E164 standard");
+        normalizePhoneNumber.setDefaultValue(false);
+        properties.add(normalizePhoneNumber);
+
+        // Force retry on bad format
+        ProviderConfigProperty forceRetry = new ProviderConfigProperty();
+        forceRetry.setName("forceRetryOnBadFormat");
+        forceRetry.setLabel("Force retry on bad format");
+        forceRetry.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        forceRetry.setHelpText("If phone number formatting fails, force the user to retry");
+        forceRetry.setDefaultValue(false);
+        properties.add(forceRetry);
 
         return properties;
     }
@@ -119,16 +164,13 @@ public class AuthMethodSelectorFactory implements AuthenticatorFactory {
 
     @Override
     public void init(Config.Scope config) {
-        // Not needed
     }
 
     @Override
     public void postInit(KeycloakSessionFactory factory) {
-        // Not needed
     }
 
     @Override
     public void close() {
-        // Not needed
     }
 }

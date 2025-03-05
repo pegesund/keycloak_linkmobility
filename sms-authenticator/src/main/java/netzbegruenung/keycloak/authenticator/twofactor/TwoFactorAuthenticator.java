@@ -102,14 +102,15 @@ public class TwoFactorAuthenticator implements Authenticator {
         // Second phase: Handle SMS verification
         String mobileNumber = context.getUser().getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE);
         if (mobileNumber == null || mobileNumber.trim().isEmpty()) {
-            // Show mobile number form directly instead of adding required action
+            logger.errorf("No mobile number found for user %s", context.getUser().getUsername());
             Response challenge = context.form()
-                .createForm("mobile_number_form.ftl");
-            context.challenge(challenge);
+                .setError("missingMobileNumber", "No mobile number configured for this account")
+                .createForm("mobile-number-error.ftl");
+            context.failureChallenge(AuthenticationFlowError.INVALID_USER, challenge);
             return;
         }
 
-        // Generate and send SMS code
+        // Generate and send verification code
         String code = generateCode();
         storeCode(context, code);
         try {
@@ -136,22 +137,44 @@ public class TwoFactorAuthenticator implements Authenticator {
             return;
         }
 
-        // Handle mobile number submission
-        String mobileNumber = formData.getFirst(MOBILE_NUMBER_FIELD);
-        if (mobileNumber != null) {
-            if (mobileNumber.trim().isEmpty()) {
+        // Handle SMS code verification
+        String enteredCode = formData.getFirst("code");
+        if (enteredCode != null) {
+            String expectedCode = context.getAuthenticationSession().getAuthNote("code");
+            String expectedCodeTimestamp = context.getAuthenticationSession().getAuthNote("code-timestamp");
+
+            if (expectedCode == null || expectedCodeTimestamp == null) {
                 Response challenge = context.form()
-                    .setError("missingMobileNumber")
-                    .createForm("mobile_number_form.ftl");
-                context.challenge(challenge);
+                    .setError("codeExpired", "Code has expired. Please try again.")
+                    .createForm(TPL_CODE);
+                context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE, challenge);
                 return;
             }
 
-            // Store the mobile number
-            context.getUser().setSingleAttribute(MOBILE_NUMBER_ATTRIBUTE, mobileNumber);
-            
-            // Now proceed with SMS verification
-            authenticate(context);
+            long timestamp = Long.parseLong(expectedCodeTimestamp);
+            long ttl = Long.parseLong(config.getOrDefault("ttl", "300")); // 5 minutes default
+            if (System.currentTimeMillis() > (timestamp + (ttl * 1000))) {
+                context.getAuthenticationSession().removeAuthNote("code");
+                context.getAuthenticationSession().removeAuthNote("code-timestamp");
+                Response challenge = context.form()
+                    .setError("codeExpired", "Code has expired. Please try again.")
+                    .createForm(TPL_CODE);
+                context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE, challenge);
+                return;
+            }
+
+            if (!enteredCode.equals(expectedCode)) {
+                Response challenge = context.form()
+                    .setError("invalidCode", "Invalid code. Please try again.")
+                    .createForm(TPL_CODE);
+                context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, challenge);
+                return;
+            }
+
+            // Code is valid, clear it and complete authentication
+            context.getAuthenticationSession().removeAuthNote("code");
+            context.getAuthenticationSession().removeAuthNote("code-timestamp");
+            context.success();
             return;
         }
 
@@ -224,22 +247,6 @@ public class TwoFactorAuthenticator implements Authenticator {
             context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, challenge);
             return;
         }
-
-        // Handle SMS code validation
-        String enteredCode = formData.getFirst("code");
-        String expectedCode = context.getAuthenticationSession().getAuthNote("code");
-
-        if (expectedCode != null && expectedCode.equals(enteredCode)) {
-            logger.infof("Successful 2FA verification for user %s", context.getUser().getUsername());
-            context.success();
-        } else {
-            logger.warnf("Invalid 2FA code entered for user %s", context.getUser().getUsername());
-            Response challenge = context.form()
-                .setAttribute("username", context.getUser().getUsername())
-                .setError("invalidCode")
-                .createForm(TPL_CODE);
-            context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, challenge);
-        }
     }
 
     private boolean validateForm(AuthenticationFlowContext context, MultivaluedMap<String, String> formData) {
@@ -265,6 +272,7 @@ public class TwoFactorAuthenticator implements Authenticator {
 
     private void storeCode(AuthenticationFlowContext context, String code) {
         context.getAuthenticationSession().setAuthNote("code", code);
+        context.getAuthenticationSession().setAuthNote("code-timestamp", String.valueOf(System.currentTimeMillis()));
     }
 
     @Override
