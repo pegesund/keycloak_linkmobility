@@ -79,9 +79,7 @@ public class TwoFactorAuthenticator implements Authenticator {
             
             Response challenge = context.form()
                 .setAttribute("realm", context.getRealm())
-                .setAttribute("auth", new LoginBean())
                 .setAttribute("login", loginData)
-                .setAttribute("message", new MessageBean())
                 .setAttribute("url", new UrlBean(context.getUriInfo()))
                 .setAttribute("client", context.getAuthenticationSession().getClient())
                 .createForm("login.ftl");
@@ -175,9 +173,7 @@ public class TwoFactorAuthenticator implements Authenticator {
             
             Response challenge = context.form()
                 .setAttribute("realm", context.getRealm())
-                .setAttribute("auth", new LoginBean())
                 .setAttribute("login", loginData)
-                .setAttribute("message", new MessageBean())
                 .setAttribute("url", new UrlBean(context.getUriInfo()))
                 .setAttribute("client", context.getAuthenticationSession().getClient())
                 .setError("Invalid username or password")
@@ -227,9 +223,7 @@ public class TwoFactorAuthenticator implements Authenticator {
             
             Response challenge = context.form()
                 .setAttribute("realm", context.getRealm())
-                .setAttribute("auth", new LoginBean())
                 .setAttribute("login", loginData)
-                .setAttribute("message", new MessageBean())
                 .setAttribute("url", new UrlBean(context.getUriInfo()))
                 .setAttribute("client", context.getAuthenticationSession().getClient())
                 .setError("Invalid username or password")
