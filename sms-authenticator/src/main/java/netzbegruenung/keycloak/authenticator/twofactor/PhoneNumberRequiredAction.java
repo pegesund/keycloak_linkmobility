@@ -42,7 +42,6 @@ public class PhoneNumberRequiredAction implements RequiredActionProvider {
 
 	@Override
 	public void processAction(RequiredActionContext context) {
-		AuthenticationSessionModel authSession = context.getAuthenticationSession();
 		UserModel user = context.getUser();
 		String phoneNumber = context.getHttpRequest().getDecodedFormParameters().getFirst("mobile_number");
 

@@ -29,7 +29,6 @@ import org.keycloak.authentication.Authenticator;
 import org.keycloak.authentication.RequiredActionFactory;
 import org.keycloak.common.util.SecretGenerator;
 import org.keycloak.models.*;
-import org.keycloak.services.messages.Messages;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.theme.Theme;
 import netzbegruenung.keycloak.authenticator.gateway.SmsServiceFactory;
@@ -40,7 +39,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.stream.Stream;
+
 
 public class SmsAuthenticator implements Authenticator {
     private static final Logger logger = Logger.getLogger(SmsAuthenticator.class);
@@ -302,11 +301,6 @@ public class SmsAuthenticator implements Authenticator {
             logger.infof("Found user: %s with mobile number: %s", user.getUsername(), mobileNumber);
         } else {
             logger.warnf("No user found with mobile number: %s", mobileNumber);
-            // Log all users' phone numbers to help debug
-            session.users().searchForUserStream(realm, "").forEach(u -> {
-                String userMobile = u.getFirstAttribute(MOBILE_NUMBER_ATTRIBUTE);
-                logger.infof("User %s has mobile number: %s", u.getUsername(), userMobile);
-            });
         }
         return user;
     }

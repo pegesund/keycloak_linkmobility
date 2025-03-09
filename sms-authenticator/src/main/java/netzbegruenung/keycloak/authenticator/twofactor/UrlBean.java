@@ -1,6 +1,5 @@
 package netzbegruenung.keycloak.authenticator.twofactor;
 
-import org.keycloak.services.util.ResolveRelative;
 import jakarta.ws.rs.core.UriInfo;
 
 public class UrlBean {

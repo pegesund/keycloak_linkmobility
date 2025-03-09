@@ -5,10 +5,7 @@ import org.jboss.logging.Logger;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.Authenticator;
-import org.keycloak.authentication.RequiredActionFactory;
-import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.common.util.SecretGenerator;
-import org.keycloak.credential.CredentialInput;
 import org.keycloak.credential.CredentialProvider;
 import org.keycloak.credential.PasswordCredentialProvider;
 import org.keycloak.credential.PasswordCredentialProviderFactory;
@@ -16,23 +13,16 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserCredentialModel;
 import org.keycloak.models.UserModel;
-import org.keycloak.models.utils.FormMessage;
-import org.keycloak.services.validation.Validation;
-import org.keycloak.sessions.AuthenticationSessionModel;
-import org.keycloak.theme.Theme;
-
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 public class TwoFactorAuthenticator implements Authenticator {
     private static final Logger logger = Logger.getLogger(TwoFactorAuthenticator.class);
     private static final String TPL_CODE = "login-sms.ftl";
     private static final String MOBILE_NUMBER_ATTRIBUTE = "mobile_number";
-    private static final String MOBILE_NUMBER_FIELD = "mobile_number";
     private Map<String, String> config;
 
     public TwoFactorAuthenticator(Map<String, String> config) {
