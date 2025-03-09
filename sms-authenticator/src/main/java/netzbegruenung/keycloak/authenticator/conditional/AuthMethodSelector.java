@@ -2,16 +2,11 @@ package netzbegruenung.keycloak.authenticator.conditional;
 
 import org.jboss.logging.Logger;
 import org.keycloak.authentication.AuthenticationFlowContext;
-import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.models.*;
 import netzbegruenung.keycloak.authenticator.smsonly.SmsAuthenticator;
 import netzbegruenung.keycloak.authenticator.twofactor.TwoFactorAuthenticator;
-import org.keycloak.models.AuthenticatorConfigModel;
-
-import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
-import java.util.List;
 import java.util.Map;
 
 public class AuthMethodSelector implements Authenticator {
@@ -118,20 +113,7 @@ public class AuthMethodSelector implements Authenticator {
             }
         }
         
-        // Check session
-        String sessionMethod = context.getAuthenticationSession().getAuthNote("SELECTED_AUTH_METHOD");
-        logger.infof("Found method in session: '%s'", sessionMethod);
-        if (sessionMethod != null) {
-            try {
-                AuthMethod result = AuthMethod.fromString(sessionMethod);
-                logger.infof("Using method from session: %s", result.name());
-                return result;
-            } catch (IllegalArgumentException e) {
-                logger.warn("Invalid auth_method in session: " + sessionMethod);
-            }
-        }
-        
-        logger.info("No method found in URL or session, defaulting to SMS");
+        logger.info("No valid method found in URL parameters, defaulting to SMS");
         return AuthMethod.SMS;
     }
 
